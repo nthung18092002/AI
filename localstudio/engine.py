@@ -39,6 +39,8 @@ def validate(data):
         raise ValueError('Nội dung quá dài; tối đa 10.000 ký tự mỗi trường.')
     if data.get('mode', 'photos') not in ('photos', 'wan', 'sdxl', 'comfy'):
         raise ValueError('Chế độ dựng không hợp lệ.')
+    if data.get('seed') not in (None, '') and not 0 <= int(data['seed']) < 2**53:
+        raise ValueError('Seed phải nằm trong khoảng 0 đến 2^53 - 1.')
     if data.get('speech', 'none') not in ('none', 'espeak', 'piper', 'windows'):
         raise ValueError('Giọng đọc không hợp lệ.')
     return duration
@@ -188,6 +190,34 @@ def timestamp(t):
     return f'{ms//3600000:02}:{ms//60000%60:02}:{ms//1000%60:02},{ms%1000:03}'
 
 
+def caption_cues(text, start, end, first_index=1):
+    """Two short lines per cue; proportional timing, not word alignment."""
+    chunks, lines, current = [], [], ''
+    for word in text.split():
+        candidate = (current + ' ' + word).strip()
+        if len(candidate) > 30 and current:
+            lines.append(current)
+            current = word
+            if len(lines) == 2:
+                chunks.append('\n'.join(lines))
+                lines = []
+        else:
+            current = candidate
+    if current:
+        lines.append(current)
+    if lines:
+        chunks.append('\n'.join(lines))
+    weights = [len(chunk.split()) for chunk in chunks]
+    cursor, consumed, total = start, 0, sum(weights)
+    cues = []
+    for i, (chunk, weight) in enumerate(zip(chunks, weights)):
+        consumed += weight
+        stop = end if i == len(chunks) - 1 else start + (end - start) * consumed / total
+        cues.append(f'{first_index+i}\n{timestamp(cursor)} --> {timestamp(stop)}\n{chunk}\n')
+        cursor = stop
+    return cues
+
+
 def atempo(ratio):
     chain = []
     while ratio > 2:
@@ -243,6 +273,9 @@ def render(data, uploads, progress, width=720, height=1280, cancel=None):
             ImageOps.exif_transpose(im).convert('RGB').save(path)
         images.append(path)
     count = len(storyboard['lines'])
+    base_seed = int(data['seed']) if data.get('seed') not in (None, '') else secrets.randbelow(2**53)
+    storyboard['seed'] = base_seed
+    storyboard['scene_seeds'] = []
     speech = data.get('speech') or ('windows' if data.get('tts') else 'none')
     voices, lengths = [], []
     if speech != 'none' and not uploads.get('narration'):
@@ -262,6 +295,7 @@ def render(data, uploads, progress, width=720, height=1280, cancel=None):
         lengths = [1] * count
     budgets = frame_budgets(storyboard['duration'], lengths)
     srt, elapsed, scenes, fitted_voices = [], 0, [], []
+    cue_index = 1
     for i, line in enumerate(storyboard['lines']):
         check_cancel(cancel)
         progress(f'Đang tạo cảnh {i+1}/{count}' + (' bằng AI local (có thể mất nhiều phút)' if mode != 'photos' else ' từ ảnh sản phẩm'))
@@ -269,20 +303,25 @@ def render(data, uploads, progress, width=720, height=1280, cancel=None):
         if mode == 'photos':
             asset = images[i % len(images)]
         else:
-            # Fresh seeds per scene; the model weights remain identical.
+            # Repeatable seeds do NOT guarantee the same identity across T2V clips.
+            scene_seed = base_seed if mode == 'wan' else (base_seed + i) % 2**53
+            storyboard['scene_seeds'].append(scene_seed)
             scene_graph = copy.deepcopy(workflow)
             for node in scene_graph.values():
                 if node.get('class_type') in ('KSampler', 'KSamplerAdvanced'):
-                    node['inputs']['seed' if node['class_type'] == 'KSampler' else 'noise_seed'] = secrets.randbelow(2**53)
+                    node['inputs']['seed' if node['class_type'] == 'KSampler' else 'noise_seed'] = scene_seed
             asset = comfy_generate(scene_graph, storyboard['visuals'][i], base, folder, i, cancel)
         still = asset.suffix.lower() in ('.png', '.jpg', '.jpeg', '.webp')
         if still:
             with Image.open(asset) as im:
                 still = not getattr(im, 'is_animated', False)
-        source = ['-loop', '1', '-i', str(asset)] if still else ['-stream_loop', '-1', '-i', str(asset)]
+        source = ['-loop', '1', '-i', str(asset)] if still else ['-i', str(asset)]
         vf = f'scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=0x121827,setsar=1,fps=24'
         if still:
             vf += f",zoompan=z='min(1+on*0.0003,1.06)':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s={width}x{height}:fps=24"
+        if not still:
+            # Play once; hold the final frame instead of replaying a person's gestures.
+            vf += f',tpad=stop_mode=clone:stop_duration={seconds}'
         clip = folder / f'scene-{i}.mp4'
         args = [*source]
         overlay = images and mode != 'photos' and data.get('product_overlay', True)
@@ -299,7 +338,9 @@ def render(data, uploads, progress, width=720, height=1280, cancel=None):
             ratio = max(1, wave_seconds(voices[i]) / max(.1, seconds - .15))
             run(['-i', str(voices[i]), '-af', atempo(ratio) + ',apad', '-t', str(seconds), '-ar', '24000', '-ac', '1', str(fitted)], cancel)
             fitted_voices.append(fitted)
-        srt.append(f'{i+1}\n{timestamp(elapsed)} --> {timestamp(elapsed+seconds)}\n{line}\n')
+        cues = caption_cues(line, elapsed, elapsed + seconds, cue_index)
+        srt.extend(cues)
+        cue_index += len(cues)
         elapsed += seconds
     storyboard['scene_frames'] = budgets
     storyboard['speech_provider'] = speech
@@ -338,7 +379,7 @@ def render(data, uploads, progress, width=720, height=1280, cancel=None):
     label = '[audio]' if narration and music else '[voice]' if narration else '[music]' if music else None
     if filters:
         args += ['-filter_complex', ';'.join(filters), '-map', '0:v', '-map', label]
-    subtitle_filter = "subtitles=captions.srt:force_style='FontName=Arial,FontSize=18,Outline=2,MarginV=45'"
+    subtitle_filter = "subtitles=captions.srt:force_style='FontName=Arial,FontSize=13,Outline=1.2,MarginV=28'"
     target = output / f'{job}.mp4'
     partial = output / f'{job}.partial.mp4'
     progress('Đang ghép lời đọc, nhạc và phụ đề')

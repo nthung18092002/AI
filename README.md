@@ -40,7 +40,7 @@ Chỉ profile được chọn mới được tải; không âm thầm chuyển t
 | Ảnh sản phẩm | Dựng ảnh thật, giữ đúng sản phẩm | CPU, ít nhất một ảnh |
 | Workflow riêng | Output từ ComfyUI API graph | Model/node core local của workflow |
 
-Bản nháp Wan tạo cảnh 288×512/49 frame, bản cân bằng 480×832/81 frame, model chạy 16fps rồi dựng ra 24fps/720×1280. Đây là upscale, không phải model sinh 720p gốc. Cảnh ngắn được cắt/lặp để đủ timeline. Tổng 20–40 giây là video đã ghép; không sinh một đoạn dài liên tục. Chưa có benchmark tốc độ/VRAM trên RTX 5070 thật.
+Bản nháp Wan tạo cảnh 288×512/49 frame, bản cân bằng 480×832/81 frame, model chạy 16fps rồi dựng ra 24fps/720×1280. Đây là upscale, không phải model sinh 720p gốc. Clip chuyển động chỉ phát một lần; nếu ngắn hơn cảnh, giữ khung cuối để đủ timeline. Đây có thể tạo đoạn đứng hình, chưa phải giải pháp sinh chuyển động dài. Tổng 20–40 giây là video đã ghép; không sinh một đoạn dài liên tục. Chưa có benchmark tốc độ/VRAM trên RTX 5070 thật.
 
 **Ảnh thật được chèn nguyên dạng lên nền AI**, không tự đưa vào model image-to-video. Text-to-video có thể tạo sai hình dạng, logo hoặc chi tiết sản phẩm. Chức năng bảo toàn sản phẩm bằng I2V chưa có; dùng ảnh thật khi nhận diện sản phẩm là yêu cầu bắt buộc.
 
@@ -99,3 +99,9 @@ Test unittest cần FFmpeg/ffprobe hệ thống. Selftest dùng eSpeak và dựn
 [Đánh giá MoneyPrinterTurbo](docs/MoneyPrinterTurbo-review.md) · [Thành phần/giấy phép](docs/THIRD_PARTY.md)
 
 Ứng dụng độc lập, chưa phải fork đầy đủ MoneyPrinterTurbo. Chưa có đăng bài tự động, lấy thông tin sản phẩm tự động, voice cloning, phụ đề từng từ hoặc bảo đảm thu nhập affiliate. Hãy xem lại thông tin, hình ảnh, lời đọc và quyền dùng tư liệu trước khi đăng; thêm nhãn tiếp thị liên kết theo nền tảng.
+
+## Cập nhật sau khi xem video lỗi Wan 2.1
+
+Wan T2V 1.3B hiện sinh từng cảnh độc lập, không có ảnh điều kiện. Có thể đổi người, căn phòng và hình dáng bao bì ngay trong clip hoặc giữa các clip. Không dùng chế độ này như một cam kết giữ đúng người/sản phẩm cho quảng cáo. Chuyển sang chế độ ảnh thật nếu cần giữ hình dạng ngay.
+
+Bản sửa chỉ xử lý lỗi dựng: không lặp lại động tác bằng stream_loop; phụ đề tách thành cue tối đa hai dòng, chữ nhỏ hơn; lưu seed và seed từng cảnh trong JSON để điều tra. Seed chung không khóa danh tính. Muốn sửa tính nhất quán cần pipeline ảnh tham chiếu/image-to-video và kiểm chứng model trên GPU; phần này chưa được triển khai.

@@ -4,7 +4,7 @@ Kiểm tra trong môi trường Linux CPU, Python 3.12.14. Đây không phải x
 
 ## Đã đạt
 
-- **13 kiểm thử unittest**, không skip: tạo lời đọc eSpeak tiếng Việt có audio thật; phân bổ frame đúng cho 20/30/40s; từ chối kết nối AI ngoài loopback; chặn redirect từ local ra Internet; phát hiện alias Ollama remote/cloud trước khi gửi prompt; từ chối workflow cloud/custom chưa chấp nhận; kiểm tra checksum và không ghi đè file hỏng; hủy trước khi dựng và hủy tiến trình đang chạy; xử lý lỗi node; mock giao thức ComfyUI + dựng/decode video có ảnh sản phẩm overlay, tiếng, nhạc, SRT và storyboard; test MP4 end-to-end; xác thực thời lượng đầu vào.
+- **14 kiểm thử unittest**, không skip: tạo lời đọc eSpeak tiếng Việt có audio thật; phân bổ frame đúng cho 20/30/40s; từ chối kết nối AI ngoài loopback; chặn redirect từ local ra Internet; phát hiện alias Ollama remote/cloud trước khi gửi prompt; từ chối workflow cloud/custom chưa chấp nhận; kiểm tra checksum và không ghi đè file hỏng; hủy trước khi dựng và hủy tiến trình đang chạy; xử lý lỗi node; mock giao thức ComfyUI + dựng/decode video có ảnh sản phẩm overlay, tiếng, nhạc, SRT và storyboard; test MP4 end-to-end; xác thực thời lượng đầu vào.
 - **Selftest CPU thực tế**: video MP4 H.264/AAC 720×1280, thời lượng ffprobe `20.000000` giây, lời đọc eSpeak tiếng Việt, nhạc tổng hợp, phụ đề đóng vào hình. Decode toàn bộ file thành công. Mẫu nằm ở examples/demo-photo-local.mp4.
 - **Chromium thực tế qua giao diện**: điền form, tải ảnh, dựng video 720p/20s có lời đọc và nhạc, phát metadata đúng 20s/720p, tải byte-range 206, hủy tác vụ mới, lịch sử, layout mobile không tràn ngang. Không có lỗi JavaScript hoặc request browser ra ngoài loopback trong lần thử.
 - **ComfyUI thật 0.42.0**, ghim commit `8f04fd6ecf4a548937971e840af2a985529fab76`, PyTorch 2.10.0+CPU: khởi động thành công, schema node của các graph Wan/SDXL khớp với server; chỉ thiếu tên file trọng số. Chạy graph EmptyImage → SaveWEBM, submit → history → tải WEBM → decode thành công. Graph này **không sinh AI**.
@@ -28,3 +28,5 @@ Kiểm tra trong môi trường Linux CPU, Python 3.12.14. Đây không phải x
 4. Xem và nghe lại mẫu, thử ngắt Internet sau khi cài đủ rồi tạo lại để xác minh offline trên máy thực tế.
 
 ZIP nguồn không kèm trọng số, môi trường Python, giọng neural hoặc phần mềm cài sẵn. Không quảng bá kết quả kiểm thử CPU thành chứng nhận toàn bộ pipeline AI/Windows đã hoàn tất.
+
+Cập nhật dựng: test phụ đề dài kiểm tra không mất từ, tối đa hai dòng/cue và thời điểm kết thúc; 14 test đạt sau khi bỏ lặp clip, thêm seed chẩn đoán và thu nhỏ phụ đề. Chưa chạy lại Wan trên GPU, chưa chứng minh sửa được biến dạng hoặc identity drift. Không đưa video người dùng vào Git/release.
