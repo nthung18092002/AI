@@ -32,7 +32,7 @@ with sync_playwright() as playwright:
     page.locator('[name=features]').fill('Đây là sản phẩm minh họa để kiểm tra phần mềm.')
     page.locator('[name=use_ollama]').uncheck()
     page.locator('[name=mode]').select_option('photos')
-    page.locator('[name=duration]').select_option('20')
+    page.locator('[name=duration]').fill('20')
     page.locator('[name=speech]').select_option('espeak')
     page.locator('#images').set_input_files(product)
     page.screenshot(path=str(folder / 'desktop.png'), full_page=True)

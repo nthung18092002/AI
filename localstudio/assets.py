@@ -156,3 +156,16 @@ def _extract_source(archive, destination):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 with source.open(entry) as src, path.open('wb') as dst:
                     shutil.copyfileobj(src, dst)
+
+
+def install_reference_models():
+    """Official model paths from ComfyUI's Klein4B edit and Wan2.2 TI2V templates."""
+    from localstudio.workflows import REFERENCE_FILES, WAN_FILES
+    hf_files('black-forest-labs/FLUX.2-klein-4b-fp8', [(REFERENCE_FILES['editor'], COMFY / 'models/diffusion_models' / REFERENCE_FILES['editor'])])
+    hf_files('Comfy-Org/z_image_turbo', [('split_files/text_encoders/' + REFERENCE_FILES['editor_clip'], COMFY / 'models/text_encoders' / REFERENCE_FILES['editor_clip'])])
+    hf_files('Comfy-Org/flux2-dev', [('split_files/vae/' + REFERENCE_FILES['editor_vae'], COMFY / 'models/vae' / REFERENCE_FILES['editor_vae'])])
+    hf_files('Comfy-Org/Wan_2.2_ComfyUI_Repackaged', [
+        ('split_files/diffusion_models/' + REFERENCE_FILES['video'], COMFY / 'models/diffusion_models' / REFERENCE_FILES['video']),
+        ('split_files/vae/' + REFERENCE_FILES['video_vae'], COMFY / 'models/vae' / REFERENCE_FILES['video_vae']),
+    ])
+    hf_files(WAN_REPO, [('split_files/text_encoders/' + WAN_FILES['clip'], COMFY / 'models/text_encoders' / WAN_FILES['clip'])])

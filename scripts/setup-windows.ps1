@@ -1,4 +1,4 @@
-param([ValidateSet('basic','images','video','all')][string]$Profile = 'video')
+param([ValidateSet('basic','images','video','all','reference')][string]$Profile = 'reference')
 $ErrorActionPreference = 'Stop'
 Set-Location (Split-Path $PSScriptRoot -Parent)
 function Check-Exit([string]$Step) {
@@ -33,4 +33,4 @@ if ($Profile -ne 'basic') {
 Check-Exit 'Installing local AI components'
 & $AppPython scripts\doctor.py --profile $Profile
 Check-Exit 'Checking installation'
-Write-Host 'Setup complete. Run start-windows.bat. For an actual GPU end-to-end check, run test-ai-windows.bat.' -ForegroundColor Green
+Write-Host 'Visual/TTS setup complete. Run start-windows.bat and review reference frames/clips. Lip-sync requires a separate validated MuseTalk environment; see docs/REFERENCE.md.' -ForegroundColor Green

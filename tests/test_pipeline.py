@@ -109,7 +109,7 @@ class PipelineTests(unittest.TestCase):
             thread = threading.Thread(target=server.serve_forever, daemon=True);thread.start()
             try:
                 blob = io.BytesIO();Image.new('RGB', (100, 180), '#df8844').save(blob, 'PNG');blob.seek(0)
-                result = render({'prompt': 'Warm studio', 'product': 'Sản phẩm mẫu', 'duration': 20, 'mode': 'comfy', 'workflow': {'1': {'class_type': 'CLIPTextEncode', 'inputs': {'text': '{{PROMPT}}'}}}, 'comfy_url': f'http://127.0.0.1:{server.server_port}', 'speech': 'espeak', 'auto_music': True, 'product_overlay': True}, {'images': [blob]}, lambda _: None, width=180, height=320)
+                result = render({'prompt': 'Warm studio', 'product': 'Sản phẩm mẫu', 'duration': 20, 'mode': 'comfy', 'workflow': {'1': {'class_type': 'CLIPTextEncode', 'inputs': {'text': '{{PROMPT}}'}}}, 'comfy_url': f'http://127.0.0.1:{server.server_port}', 'speech': 'espeak', 'auto_music': True, 'product_overlay': False}, {'images': [blob]}, lambda _: None, width=180, height=320)
                 self.assertEqual(len(captured), 4)
                 self.assertNotIn('{{PROMPT}}', json.dumps(captured))
                 path = ROOT / result['video'].lstrip('/')

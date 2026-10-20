@@ -15,7 +15,8 @@ from localstudio.network import open_local
 from localstudio.paths import ROOT, PIPER_MODEL
 from localstudio.process import Cancelled, check_cancel, execute
 from localstudio.speech import ambient_music, espeak_speech, piper_speech, wave_seconds
-from localstudio.workflows import sdxl_workflow, validate_graph, wan_workflow
+from localstudio.workflows import sdxl_workflow, validate_graph, wan_workflow, reference_frame_workflow, reference_video_workflow
+from localstudio.brief import explicit_plan, parse_brief
 
 
 def ffmpeg():
@@ -31,13 +32,13 @@ def run(args, cancel=None, cwd=None):
 
 def validate(data):
     duration = int(data.get('duration', 30))
-    if duration not in (20, 30, 40):
-        raise ValueError('Thời lượng phải là 20, 30 hoặc 40 giây.')
+    if not 20 <= duration <= 40:
+        raise ValueError('Thời lượng phải nằm trong khoảng 20 đến 40 giây.')
     if not str(data.get('prompt', '')).strip():
         raise ValueError('Hãy nhập prompt và thông tin sản phẩm.')
     if len(str(data.get('prompt', ''))) > 10000 or len(str(data.get('features', ''))) > 10000:
         raise ValueError('Nội dung quá dài; tối đa 10.000 ký tự mỗi trường.')
-    if data.get('mode', 'photos') not in ('photos', 'wan', 'sdxl', 'comfy'):
+    if data.get('mode', 'photos') not in ('photos', 'wan', 'sdxl', 'comfy', 'reference'):
         raise ValueError('Chế độ dựng không hợp lệ.')
     if data.get('seed') not in (None, '') and not 0 <= int(data['seed']) < 2**53:
         raise ValueError('Seed phải nằm trong khoảng 0 đến 2^53 - 1.')
@@ -51,7 +52,8 @@ def request_json(url, payload=None, timeout=30):
     req = urllib.request.Request(url, data=body, headers={'Content-Type': 'application/json'})
     try:
         with open_local(req, timeout=timeout) as response:
-            return json.load(response)
+            raw = response.read()
+            return json.loads(raw) if raw.strip() else {}
     except urllib.error.HTTPError as exc:
         detail = exc.read(4000).decode('utf-8', errors='replace')
         raise RuntimeError(f'Dịch vụ local HTTP {exc.code}: {detail}') from exc
@@ -59,6 +61,9 @@ def request_json(url, payload=None, timeout=30):
 
 def plan(data):
     duration = validate(data)
+    authored = explicit_plan(data)
+    if authored is not None:
+        return authored
     product = str(data.get('product') or 'sản phẩm').strip()
     prompt = str(data['prompt']).strip()
     features = [s.strip() for s in str(data.get('features', '')).splitlines() if s.strip()]
@@ -131,6 +136,8 @@ def comfy_generate(workflow, prompt, base, folder, scene, cancel=None):
     if not replaced or not isinstance(graph, dict) or not all(isinstance(n, dict) and 'class_type' in n for n in graph.values()):
         raise ValueError('Workflow cần định dạng API ComfyUI và có {{PROMPT}} trong prompt.')
     allowed = {node['class_type'] for graph in (wan_workflow(), sdxl_workflow()) for node in graph.values()}
+    for ref_graph in (reference_frame_workflow('placeholder.png'), reference_video_workflow('placeholder.png')):
+        allowed.update(node['class_type'] for node in ref_graph.values())
     allowed.update({'LoadImage', 'VAEEncode', 'VAEDecode', 'ImageScale', 'ImageScaleBy', 'WanImageToVideo', 'CLIPVisionLoader', 'CLIPVisionEncode', 'EmptyImage'})
     unsupported = sorted({node['class_type'] for node in graph.values()} - allowed)
     if unsupported:
@@ -244,6 +251,10 @@ def render(data, uploads, progress, width=720, height=1280, cancel=None):
     check_cancel(cancel)
     validate(data)
     mode = data.get('mode', 'photos')
+    if parse_brief(data['prompt'])['requires_lipsync'] and data.get('speech_delivery') != 'voiceover':
+        raise ValueError('Prompt yêu cầu khớp môi. Dùng dự án tham chiếu với bộ lip-sync local; không ghép giọng đọc vào Wan T2V rồi gọi là lip-sync.')
+    if mode == 'reference':
+        raise ValueError('Chế độ tham chiếu cần tạo và duyệt khung cảnh trước; dùng quy trình dự án tham chiếu.')
     if mode == 'photos' and not uploads.get('images'):
         raise ValueError('Chế độ ảnh cần ít nhất một ảnh sản phẩm.')
     base = str(data.get('comfy_url') or 'http://127.0.0.1:8188').rstrip('/')
@@ -293,7 +304,7 @@ def render(data, uploads, progress, width=720, height=1280, cancel=None):
             lengths.append(wave_seconds(path) + .15)
     else:
         lengths = [1] * count
-    budgets = frame_budgets(storyboard['duration'], lengths)
+    budgets = [round((scene['end'] - scene['start']) * 24) for scene in storyboard['timeline']] if storyboard.get('timeline') else frame_budgets(storyboard['duration'], lengths)
     srt, elapsed, scenes, fitted_voices = [], 0, [], []
     cue_index = 1
     for i, line in enumerate(storyboard['lines']):
@@ -324,13 +335,7 @@ def render(data, uploads, progress, width=720, height=1280, cancel=None):
             vf += f',tpad=stop_mode=clone:stop_duration={seconds}'
         clip = folder / f'scene-{i}.mp4'
         args = [*source]
-        overlay = images and mode != 'photos' and data.get('product_overlay', True)
-        if overlay:
-            args += ['-loop', '1', '-i', str(images[i % len(images)])]
-            smallw, smallh = (width // 2) // 2 * 2, (height // 3) // 2 * 2
-            args += ['-filter_complex', f'[0:v]{vf}[bg];[1:v]scale={smallw}:{smallh}:force_original_aspect_ratio=decrease[product];[bg][product]overlay=x=(W-w)/2:y=H-h-{height//7}[out]', '-map', '[out]']
-        else:
-            args += ['-vf', vf]
+        args += ['-vf', vf]
         run([*args, '-frames:v', str(budgets[i]), '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '21', '-pix_fmt', 'yuv420p', str(clip)], cancel)
         scenes.append(clip)
         if voices:
@@ -384,7 +389,9 @@ def render(data, uploads, progress, width=720, height=1280, cancel=None):
     partial = output / f'{job}.partial.mp4'
     progress('Đang ghép lời đọc, nhạc và phụ đề')
     try:
-        run([*args, '-vf', subtitle_filter, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '21', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-t', str(storyboard['duration']), '-movflags', '+faststart', str(partial)], cancel, cwd=folder)
+        burn = storyboard.get('burn_subtitles', data.get('burn_subtitles', True))
+        video_filters = ['-vf', subtitle_filter] if burn else []
+        run([*args, *video_filters, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '21', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-t', str(storyboard['duration']), '-movflags', '+faststart', str(partial)], cancel, cwd=folder)
         check_cancel(cancel)
         partial.replace(target)
         shutil.copy2(subtitle, output / f'{job}.srt')

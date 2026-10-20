@@ -25,8 +25,8 @@ Công cụ hiện tại vẫn là ứng dụng độc lập, **không phải for
 
 ## RTX 5070 12GB / RAM 32GB
 
-Chạy tuần tự: viết kịch bản → nhả LLM khỏi VRAM → sinh từng cảnh ngắn → FFmpeg dựng trên CPU. Không hứa thời gian sinh hoặc chất lượng trước khi thử model thật. Model video lớn và TTS cùng GPU có thể vượt 12GB. Tổng 20–40 giây được ghép từ nhiều cảnh. Text-to-video không bảo đảm giữ đúng sản phẩm; image-to-video có điều kiện ảnh sản phẩm vẫn là phần cần tích hợp.
+Chạy tuần tự: viết kịch bản → nhả LLM khỏi VRAM → sinh từng cảnh ngắn → FFmpeg dựng trên CPU. Không hứa thời gian sinh hoặc chất lượng trước khi thử model thật. Model video lớn và TTS cùng GPU có thể vượt 12GB. Tổng 20–40 giây được ghép từ nhiều cảnh. Text-to-video không bảo đảm giữ đúng sản phẩm; image-to-video nhận ảnh đã được bổ sung trong luồng tham chiếu mới; chưa có kiểm chứng chất lượng GPU.
 
 ## Phần còn thiếu để đạt mục tiêu đầy đủ
 
-Đã bổ sung bộ cài Windows, workflow dựng sẵn Wan/SDXL, TTS tiếng Việt và phụ đề chia theo độ dài từng câu. Những phần chưa xác minh là cài đặt Windows thật, download trọng số và suy luận GPU/Piper; phần I2V giữ đúng sản phẩm vẫn chưa có. Hiện không có GPU Windows trong môi trường cloud để xác minh các phần này.
+Đã bổ sung bộ cài Windows, workflow dựng sẵn Wan/SDXL, TTS tiếng Việt và phụ đề chia theo độ dài từng câu. Những phần chưa xác minh là cài đặt Windows thật, download trọng số và suy luận GPU/Piper; luồng I2V đã được bổ sung nhưng chưa kiểm chứng chất lượng/VRAM. Hiện không có GPU Windows trong môi trường cloud để xác minh các phần này.

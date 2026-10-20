@@ -16,6 +16,7 @@ import sys
 from localstudio.engine import ROOT, render, validate
 from localstudio.process import Cancelled, stop_processes
 from localstudio.services import start_services, system_status
+from localstudio import projects
 
 jobs, signals = {}, {}
 lock = threading.RLock()
@@ -71,6 +72,11 @@ class Handler(BaseHTTPRequestHandler):
         url = urllib.parse.urlsplit(self.path)
         if url.path == '/api/system':
             return self.reply(200, system_status())
+        if re.fullmatch(r'/api/reference/[a-f0-9]{32}', url.path):
+            try:
+                return self.reply(200, projects.describe(url.path.rsplit('/', 1)[-1]))
+            except (ValueError, OSError) as exc:
+                return self.reply(404, {'error': str(exc)})
         if url.path == '/api/jobs':
             with lock:
                 return self.reply(200, list(jobs.values())[-50:][::-1])
@@ -78,8 +84,13 @@ class Handler(BaseHTTPRequestHandler):
             with lock:
                 job = jobs.get(url.path.split('/')[-1])
                 return self.reply(200 if job else 404, job or {'error': 'Không tìm thấy tác vụ'})
-        if url.path == '/':
+        if url.path == '/studio.js':
+            path = ROOT / 'web/studio.js'
+        elif url.path == '/':
             path = ROOT / 'web' / 'index.html'
+        elif re.fullmatch(r'/projects/[a-f0-9]{32}/(?:frame-\d+\.png|voice-\d+\.wav|preview-\d+\.mp4)', url.path):
+            parts = url.path.strip('/').split('/')
+            path = projects.project_folder(parts[1]) / parts[2]
         elif re.fullmatch(r'/outputs/[a-f0-9]{32}\.(mp4|srt|json)', url.path):
             path = ROOT / url.path.lstrip('/')
         else:
@@ -141,6 +152,8 @@ class Handler(BaseHTTPRequestHandler):
                         return self.reply(409, {'error': 'Tác vụ không còn chạy.'})
                     signals[key].set()
                 return self.reply(202, {'message': 'Đã yêu cầu hủy. Đợi bước đang chạy kết thúc; không tắt đột ngột ComfyUI.'})
+            if re.fullmatch(r'/api/reference/(prepare|approve|preview|approve-motion|export|delivery)', self.path):
+                return self.reference_request(self.path.rsplit('/', 1)[-1], data)
             if self.path != '/api/render':
                 return self.reply(404, {'error': 'Not found'})
             validate(data)
@@ -180,6 +193,58 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(202, {'id': key})
         except Exception as exc:
             self.reply(400, {'error': str(exc)})
+
+
+    def reference_request(self, action, data):
+        with lock:
+            if any(job.get('status') == 'running' for job in jobs.values()):
+                return self.reply(409, {'error': 'Có tác vụ đang chạy. Chờ hoặc hủy trước khi thay đổi dự án.'})
+            if action in ('approve', 'approve-motion', 'delivery'):
+                if action == 'delivery':
+                    result = projects.set_delivery(data['project_id'], data.get('speech_delivery'))
+                elif action == 'approve':
+                    result = projects.approve_frames(data['project_id'], data.get('frame_hashes'))
+                else:
+                    result = projects.approve_preview(data['project_id'], data.get('preview_sha256'), data.get('scene_index', 0))
+                return self.reply(200, result)
+            if action == 'prepare':
+                validate(data)
+                if len(data.get('images', [])) != 1:
+                    raise ValueError('Chế độ tham chiếu cần đúng một ảnh sản phẩm chuẩn cho mỗi dự án.')
+            else:
+                projects.read(data['project_id'])
+            key = uuid.uuid4().hex
+            jobs[key] = {'id': key, 'title': str(data.get('product') or action), 'status': 'running', 'message': 'Đang chuẩn bị dự án tham chiếu', 'action': action}
+            signals[key] = threading.Event()
+            persist()
+        def work():
+            try:
+                update = lambda message: update_job(key, message=message)
+                cancel = signals[key].is_set
+                if action == 'prepare':
+                    import tempfile
+                    with tempfile.TemporaryDirectory(dir=ROOT / 'work') as temporary:
+                        uploads = {'images': [io.BytesIO(base64.b64decode(value, validate=True)) for value in data.pop('images')]}
+                        for name in ('narration', 'music'):
+                            if data.get(name):
+                                path = Path(temporary) / (name + '.audio')
+                                path.write_bytes(base64.b64decode(data.pop(name), validate=True))
+                                uploads[name] = path
+                        result = projects.prepare(data, uploads, update, cancel)
+                elif action == 'preview':
+                    result = projects.preview(data['project_id'], update, cancel, data.get('scene_index', 0))
+                else:
+                    result = projects.export(data['project_id'], update, cancel)
+                update_job(key, status='done', message='Hoàn tất bước tham chiếu', **result)
+            except Cancelled as exc:
+                update_job(key, status='cancelled', error=str(exc))
+            except Exception as exc:
+                update_job(key, status='error', error=str(exc))
+            finally:
+                with lock:
+                    signals.pop(key, None)
+        threading.Thread(target=work, daemon=True).start()
+        self.reply(202, {'id': key})
 
 
 if __name__ == '__main__':

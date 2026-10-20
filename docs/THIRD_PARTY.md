@@ -14,3 +14,7 @@ Các thành phần cài riêng có giấy phép riêng, không được đổi t
 - Pillow, PyTorch, torchvision, ONNX Runtime, Playwright và các dependency khác giữ giấy phép upstream.
 
 ZIP nguồn do công cụ đóng gói không kèm binary, trọng số model hoặc các môi trường Python. Bộ cài tải từng thành phần từ nguồn chính thức. Đây không phải xác nhận quyền sử dụng mọi tư liệu, voice hay sản phẩm cho quảng cáo thương mại.
+
+Luồng tham chiếu mới thêm FLUX.2 Klein 4B fp8 (`black-forest-labs/FLUX.2-klein-4b-fp8`), Qwen3 4B tokenizer/encoder từ Comfy-Org/z_image_turbo, VAE từ Comfy-Org/flux2-dev và Wan2.2 TI2V5B/VAE từ Comfy-Org/Wan_2.2_ComfyUI_Repackaged. Tên file dựa trên template ComfyUI chính thức. Kiểm tra model card/giấy phép tại nguồn trước khi sử dụng/phân phối; chưa tải các trọng số này trong cloud.
+
+Adapter MuseTalk không sao chép mã upstream, gọi bản cài local của người dùng. Source/weights/dependency của MuseTalk có điều khoản riêng. Công thức upstream dùng CUDA/MMLab cũ chưa được dự án này xác minh cho RTX 5070. Có adapter không có nghĩa bản cài GPU đã hoạt động hoặc khớp môi đã đạt.

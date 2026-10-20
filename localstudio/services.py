@@ -58,7 +58,7 @@ def start_services():
         try:
             request_json('http://127.0.0.1:8188/system_stats', timeout=2)
         except Exception:
-            spawn([str(python), 'main.py', '--listen', '127.0.0.1', '--port', '8188', '--lowvram', '--reserve-vram', '1', '--disable-all-custom-nodes', '--offline'], cwd=COMFY, env=environment, name='comfyui')
+            spawn([str(python), 'main.py', '--listen', '127.0.0.1', '--port', '8188', '--lowvram', '--reserve-vram', '1', '--disable-all-custom-nodes', '--offline', '--cache-none'], cwd=COMFY, env=environment, name='comfyui')
 
 
 def system_status():
@@ -80,6 +80,8 @@ def system_status():
         except Exception as exc:
             result[key] = False
             result[key + '_error'] = str(exc)
+    from localstudio.lipsync import status as lipsync_status
+    result['lipsync'] = lipsync_status()
     result['installed_assets'] = []
     for folder in ('diffusion_models', 'text_encoders', 'vae', 'checkpoints'):
         path = COMFY / 'models' / folder

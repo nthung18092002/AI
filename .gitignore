@@ -7,3 +7,4 @@ models/
 runtime/
 dist/
 settings.json
+lipsync.json

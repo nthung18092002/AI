@@ -1,107 +1,80 @@
 # Local Affiliate Studio
 
-Công cụ PC cho **Windows 11 / Ryzen 7600X / RTX 5070 12GB / RAM 32GB**: nhập ý tưởng và thông tin sản phẩm → viết kịch bản → sinh cảnh → lời đọc tiếng Việt → video dọc **20/30/40 giây** có phụ đề và nhạc.
+Công cụ video local cho Windows, đang phát triển luồng **ảnh sản phẩm → ảnh khung cảnh tham chiếu → duyệt → image-to-video**. Không dùng API dịch vụ AI đám mây. Các thành phần local giao tiếp qua HTTP loopback; Internet dùng để cài phần mềm/tải model.
 
-**Không cần API key hoặc dịch vụ AI đám mây.** Ollama, ComfyUI, TTS và FFmpeg xử lý trên cùng PC. ONNX Runtime được tắt telemetry qua API trước khi nạp giọng Piper. Internet dùng để cài phần mềm và tải model ban đầu. Dịch vụ nội bộ giao tiếp HTTP loopback, không gửi prompt tới nhà cung cấp cloud. Sau khi tải đủ, có thể ngắt Internet để tạo video.
+Bản cũ đã sinh từng cảnh bằng Wan 2.1 T2V và chèn ảnh sản phẩm đè lên video, gây đổi người, sai bao bì và hình như miếng dán. Luồng đó không phù hợp cho quảng cáo cần nhận diện sản phẩm. Bản sửa bỏ ảnh đè và thêm graph tham chiếu thực sự. **Chưa xác minh chất lượng sinh model trên RTX 5070 12GB; không gọi đây là công cụ đã bảo đảm mọi yêu cầu quảng cáo.**
 
-## Cài trên Windows
+## Bắt đầu / cập nhật Windows 11
 
-1. Giải nén toàn bộ bộ công cụ vào thư mục có quyền ghi, ví dụ `D:\LocalAffiliateStudio`. Để trống ít nhất **35GB**, khuyến nghị 50–60GB cho model và video trung gian. Cập nhật driver NVIDIA hỗ trợ CUDA 12.8/RTX 50.
-2. Bấm **`setup-windows.bat`**. Cần Internet và winget (App Installer của Windows). Bộ cài chuẩn bị Python 3.12 nếu thiếu, môi trường ứng dụng, PyTorch CUDA 12.8, ComfyUI, Ollama + Qwen2.5:3b, model Wan 2.1 1.3B và giọng Piper tiếng Việt. Tải model có thể lâu, nhiều GB. Có thể có hộp thoại từ trình cài Windows.
-3. Bấm **`start-windows.bat`**. Trình duyệt mở giao diện; ComfyUI/Ollama được khởi động nếu đã cài và chưa chạy. Bấm **Kiểm tra lại** sau khi các dịch vụ khởi động.
-4. Nhập prompt, thông tin sản phẩm, chọn thời lượng và **Tạo video trên máy**. Video nằm trong `outputs/`. Với hàng hóa cụ thể nên tải thêm ảnh sản phẩm và giữ tùy chọn chèn ảnh thật.
+1. Giải nén mã nguồn. Nếu cập nhật bản cũ, chép mã mới vào thư mục hiện tại và giữ `.venv/`, `runtime/`, `models/`, `work/`, `outputs/`.
+2. Cập nhật driver NVIDIA hỗ trợ CUDA 12.8. Chuẩn bị ít nhất **55GB trống**, khuyến nghị 70GB cho model/cache/video mới.
+3. Chạy **`setup-windows.bat -Profile reference`**. Cần Internet và winget (hoặc tự cài Python 3.12/Ollama từ nguồn chính thức nếu thiếu winget).
+4. Chạy **`start-windows.bat`**. Chọn **Ảnh tham chiếu → duyệt khung → I2V**, chọn một ảnh sản phẩm chuẩn và nhập prompt.
+5. Duyệt các khung, thử chuyển động từng cảnh rồi mới dựng dài. Xem [hướng dẫn chi tiết và giới hạn](docs/REFERENCE.md).
 
-Nếu thiếu winget, cài Python 3.12 và Ollama từ trang chính thức rồi chạy lại. Bộ cài không bỏ qua lỗi checksum, TLS hoặc CUDA. Lỗi sẽ dừng với thông báo; sửa nguyên nhân rồi chạy lại, file đã tải đúng được giữ nguyên. Không chạy bộ cài khi đang dựng video.
+Profile reference cài ComfyUI, PyTorch CUDA 12.8, FLUX.2 Klein 4B fp8, text encoder Qwen3 4B, FLUX2 VAE, Wan 2.2 TI2V 5B, Wan2.2 VAE, UMT5 và Piper. Dùng model nhỏ hơn không có nghĩa chắc chắn vừa 12GB VRAM. Bộ cài có phép tính tensor GPU để kiểm tra CUDA, nhưng chưa benchmark các model này trên máy mục tiêu.
 
-### Chọn bộ model
+**Lip-sync là phần cài riêng, chưa có bộ cài Windows/RTX 5070 được kiểm chứng.** Adapter MuseTalk local có sẵn; thiếu module/model sẽ chặn yêu cầu khớp môi. Không coi giọng đọc ghép vào video là lip-sync. [Cấu hình/giới hạn MuseTalk](docs/REFERENCE.md).
 
-Chạy trong Command Prompt ở thư mục ứng dụng:
+## Hành vi đã sửa
 
-```bat
-setup-windows.bat -Profile video
-setup-windows.bat -Profile images
-setup-windows.bat -Profile all
-setup-windows.bat -Profile basic
-```
+- Ảnh được upload thật vào ComfyUI, đi qua VAE/reference conditioning; không chỉ nối tên file vào prompt.
+- Khung đầu làm tham chiếu thêm cho nhân vật/bối cảnh ở các khung sau.
+- Khung đã duyệt đi vào graph **Wan22ImageToVideoLatent**, dùng đúng Wan2.2 VAE; không thay bằng T2V hoặc ảnh tĩnh.
+- Timeline/lời thoại đặt trong prompt được giữ nguyên. Các mốc 0–5, 5–13, 13–20, 20–28 được dựng thành 28 giây.
+- “Không tự thêm chữ” tắt phụ đề đóng vào hình; không ép toàn bộ lời thoại lên màn hình.
+- Mỗi cảnh có clip thử tối đa 3s để duyệt. Clip đã duyệt được dùng lại khi dựng dài; các đoạn sau tiếp tục bằng khung cuối.
+- Không loop, freeze hoặc kéo dài giả trong luồng tham chiếu. Thiếu frame báo lỗi. PCM audio ghép riêng trước khi encode AAC để tránh trễ tích lũy theo cảnh.
+- Thiếu lip-sync local hoặc module lỗi thì dừng. Chỉ đổi sang voiceover khi người dùng chọn rõ ràng; lưu hình thức thực tế trong JSON.
 
-- `video` (mặc định): Wan sinh clip chuyển động + Ollama + Piper.
-- `images`: SDXL sinh ảnh + chuyển động zoom, Ollama + Piper. Chọn đúng chế độ SDXL trong giao diện.
-- `all`: cả Wan và SDXL, cần tối thiểu 45GB trống khi bắt đầu cài; khuyến nghị nhiều hơn.
-- `basic`: TTS và dựng ảnh thật; không cài Ollama/ComfyUI. Trong giao diện chọn ảnh sản phẩm và tắt viết bằng Ollama.
+Đưa ảnh vào model **không bảo đảm pixel/logo/chữ được giữ nguyên**, bàn tay đúng hay miệng chính xác. Duyệt khung/clip là kiểm tra bằng mắt, không phải bộ kiểm định tự động. Bản xem trước hiện chỉ kiểm tra hình; lip-sync thực tế chưa có mẫu được xác minh. Người dẫn/căn bếp được model dựng từ mô tả, chưa có bảo đảm giữ danh tính tuyệt đối.
 
-Chỉ profile được chọn mới được tải; không âm thầm chuyển từ video AI sang slideshow khi thiếu model. Giữ cửa sổ ứng dụng mở trong khi dựng; đóng sẽ dừng các dịch vụ do ứng dụng tự khởi động. Dịch vụ đã chạy từ trước không bị ứng dụng tắt.
+## Chế độ và profile khác
 
-## Các chế độ
+| Chế độ | Hành vi |
+|---|---|
+| Tham chiếu (mới) | FLUX.2 Klein dựng khung từ ảnh thật + Wan2.2 I2V; cần profile reference |
+| Ảnh thật | Zoom ảnh sản phẩm, không tạo người/động tác bằng AI; chạy CPU |
+| SDXL (cũ) | Sinh ảnh bằng text, không nhận ảnh sản phẩm làm điều kiện |
+| Wan2.1 T2V (cũ) | Thử nghiệm không ảnh điều kiện, dễ drift; không dùng như cam kết giữ đúng sản phẩm |
+| Workflow riêng | Các node core local trong danh sách cho phép; chưa tự ánh xạ ảnh |
 
-| Chế độ | Kết quả | Phần cứng/model |
-|---|---|---|
-| Wan 2.1 | Clip AI có chuyển động, ghép 20–40s | GPU, model Wan 1.3B + UMT5 + VAE |
-| SDXL | Ảnh AI, chuyển động zoom, ghép 20–40s | GPU, SDXL base |
-| Ảnh sản phẩm | Dựng ảnh thật, giữ đúng sản phẩm | CPU, ít nhất một ảnh |
-| Workflow riêng | Output từ ComfyUI API graph | Model/node core local của workflow |
+`setup-windows.bat -Profile basic` cài TTS/dựng ảnh thật; `images` cài SDXL; `video` cài Wan2.1 cũ; `all` cài cả hai profile cũ. `all` không thay thế profile `reference`. Bộ cài không tự xóa các model cũ hoặc tắt xác minh TLS/checksum để làm setup vượt qua.
 
-Bản nháp Wan tạo cảnh 288×512/49 frame, bản cân bằng 480×832/81 frame, model chạy 16fps rồi dựng ra 24fps/720×1280. Đây là upscale, không phải model sinh 720p gốc. Clip chuyển động chỉ phát một lần; nếu ngắn hơn cảnh, giữ khung cuối để đủ timeline. Đây có thể tạo đoạn đứng hình, chưa phải giải pháp sinh chuyển động dài. Tổng 20–40 giây là video đã ghép; không sinh một đoạn dài liên tục. Chưa có benchmark tốc độ/VRAM trên RTX 5070 thật.
+## Âm thanh / file đầu ra
 
-**Ảnh thật được chèn nguyên dạng lên nền AI**, không tự đưa vào model image-to-video. Text-to-video có thể tạo sai hình dạng, logo hoặc chi tiết sản phẩm. Chức năng bảo toàn sản phẩm bằng I2V chưa có; dùng ảnh thật khi nhận diện sản phẩm là yêu cầu bắt buộc.
+Piper neural, eSpeak NG offline (giọng máy), Windows System.Speech nếu có voice tương thích, hoặc file WAV/MP3 tự tải lên. Cần nghe thử voice; chưa xác nhận Piper hiện tại đáp ứng giọng nữ tự nhiên. Nhạc ambient tạo bằng thuật toán local, không phải model AI sinh nhạc; file nhạc tải lên ưu tiên nếu bạn chọn.
 
-### Lời đọc, phụ đề, nhạc
+Đầu ra MP4 H.264/AAC 720×1280, 24fps, SRT và JSON. I2V bản nháp 288×512, bản cân bằng 576×1024 rồi upscale; không phải model sinh 720p gốc. Video dài được sinh theo các đoạn ngắn, có thể tích lũy drift. Xem toàn bộ video trước khi dùng.
 
-- **Piper neural tiếng Việt**: chạy CPU với model đã tải. Bộ cài lưu model card; xem quyền sử dụng voice trước khi làm nội dung thương mại.
-- **eSpeak NG**: tiếng Việt offline có sẵn trong dependency, giọng máy. Không cần tải model neural và đã chạy thử thực tế trên Linux.
-- **Windows voice**: tùy chọn nâng cao, chỉ các voice tương thích System.Speech; không đảm bảo voice Windows Settings có sẵn ở API này.
-- **File WAV/MP3**: ưu tiên hơn giọng tự sinh. File nhạc tải lên ưu tiên hơn nhạc tự tạo.
-- Phụ đề được đóng vào video, kèm file SRT. Giọng tự sinh được tạo từng câu và phân bổ thời gian theo độ dài; nếu quá dài, tăng tốc để vừa video. Đây là căn theo câu/cảnh, không phải karaoke từng từ. Lời đọc tự tải lên có phụ đề chia theo cảnh, chưa nhận dạng/forced alignment.
-- Nhạc tự tạo là hòa âm ambient tổng hợp bằng thuật toán, không dùng dịch vụ sinh nhạc hoặc nhạc thư viện có bản quyền.
+File: `outputs/`; dự án tham chiếu: `work/projects/`; lịch sử: `work/jobs.json`; log: `work/logs/`; model: `models/` và `runtime/ComfyUI/models/`. Dừng ứng dụng trước khi dọn dữ liệu. Chỉ chạy một instance ứng dụng dùng chung thư mục. Các dịch vụ do ứng dụng khởi động sẽ dừng khi đóng; dịch vụ chạy sẵn không bị tắt.
 
-## Chạy, kiểm tra và khắc phục
+## Local và bảo vệ dữ liệu
 
-- Nút **Kiểm tra lại** báo FFmpeg, Ollama, ComfyUI và giọng đọc. Đây là kiểm tra thành phần, không phải bằng chứng model đã sinh video thành công.
-- **`test-ai-windows.bat`** tạo video AI 20s thật, có Ollama/Piper/Wan. Giữ ứng dụng mở, không dựng video khác cùng lúc. Mặc định dùng bản nháp. Dùng `test-ai-windows.bat --mode sdxl` với profile images.
-- Báo cáo chẩn đoán: `.venv\Scripts\python.exe scripts\doctor.py --profile video`; thêm `--verify-models` để đọc và đối chiếu checksum toàn bộ trọng số, có thể lâu.
-- Log dịch vụ: `work\logs\`. Lịch sử: `work\jobs.json`. Model: `models\` và `runtime\ComfyUI\models\`.
-- Hủy tác vụ dừng FFmpeg và gửi hủy theo prompt ID tới ComfyUI. Nếu đang ở Ollama/TTS, cần chờ lệnh hiện tại trả về. Tác vụ bị đóng giữa chừng được đánh dấu gián đoạn khi mở lại; chưa có resume từng cảnh.
-- CUDA lỗi: cập nhật driver NVIDIA, đọc log. Bộ cài có thử phép nhân tensor thật trên GPU để phát hiện PyTorch/driver không tương thích. Không cần tự cài CUDA Toolkit riêng cho wheel PyTorch.
-- Thiếu VRAM: chọn bản nháp, tắt ứng dụng chiếm VRAM, không chạy song song model khác. ComfyUI bật low-VRAM, text encoder Wan chạy CPU và VAE decode theo tile. Ollama được yêu cầu unload model sau khi viết xong. Có thể cần pagefile Windows; tốc độ thực tế phải đo trên máy.
-- Thiếu giọng Piper: chạy lại bộ cài hoặc chọn eSpeak. Không có fallback TTS cloud.
-- Thiếu filter subtitles: dùng FFmpeg có libass/libx264. Ưu tiên FFmpeg hệ thống, nếu không có dùng bản đóng gói của imageio-ffmpeg. Bản Windows chưa được chạy tại môi trường Linux này.
-- Port bận: có thể dùng `.venv\Scripts\python.exe app.py --port 7862`. Các dịch vụ model vẫn dùng 8188 và 11434.
-- Chỉ xóa `work/` khi ứng dụng dừng. Sao lưu video cần giữ trước khi xóa `outputs/`. Dữ liệu/môi trường lớn không được đưa vào Git.
+Giao diện bind 127.0.0.1, kiểm tra Host/Origin, không mở CORS. Adapter AI chặn URL ngoài loopback, bỏ proxy và chặn redirect ra ngoài. Ollama `/api/show` được kiểm tra để từ chối model remote/cloud. Graph chỉ dùng danh sách node core xử lý local. ComfyUI do ứng dụng quản lý bật offline, tắt custom nodes và cache-none; ONNX telemetry bị tắt trước khi nạp Piper. Đây không phải firewall cho mọi phần mềm trên PC; tự cấu hình server ngoài do bạn chạy.
 
-## Quyền riêng tư và phạm vi local
+Trọng số tải từ nguồn chính thức qua HTTPS, kiểm SHA256 LFS/Git blob theo revision bất biến. Archive ComfyUI được ghim commit và SHA256. Thông tin tải lưu tại `models/download-records.json`. Không cần secret hoặc API key cho suy luận. License code không thay thế license model/voice/nhạc: xem [thành phần bên ngoài](docs/THIRD_PARTY.md).
 
-Server giao diện chỉ bind `127.0.0.1`, kiểm tra Host/Origin và không mở CORS. Adapter AI chỉ chấp nhận HTTP localhost/127.0.0.1/::1, không dùng proxy và chặn redirect ra ngoài. Không có telemetry trong mã ứng dụng. ComfyUI do ứng dụng khởi động có `--offline`, `--disable-all-custom-nodes`, offline Hugging Face/Transformers. Ollama do ứng dụng khởi động có `OLLAMA_NO_CLOUD=1`. Ứng dụng kiểm tra /api/show để từ chối model Ollama remote/cloud, và chỉ cho phép danh sách node ComfyUI core xử lý local. Khi dùng server đã chạy từ trước, bạn chịu trách nhiệm cấu hình phần mềm đó chỉ chạy local; đây không phải firewall ngăn mọi chương trình trên PC ra Internet.
-
-Ảnh, prompt và âm thanh nằm trên PC. Cài đặt dùng nguồn chính thức qua HTTPS, xác minh SHA256 của ComfyUI và SHA256 LFS/Git blob của file model theo revision bất biến, lưu hồ sơ ở `models/download-records.json`. Trọng số chưa tải trong cloud do Hugging Face bị chặn; bộ tải được kiểm thử với fixture checksum, chưa xác minh download/suy luận model thật.
-
-## Phát triển / môi trường cloud
+## Phát triển / kiểm thử
 
 ```bash
 cd /workspace/AI
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python app.py --no-browser --no-services --port 7861
+.venv/bin/python app.py --no-browser --no-services --port 7864
 ```
 
-Dùng checkout hiện có trong môi trường đã cô lập, không cần Git worktree. Không trình bày URL loopback như web preview cloud.
+Dùng checkout hiện có trong môi trường cô lập; không cần Git worktree. Loopback không phải web preview cloud. Cloud hiện không có GPU/trọng số; không dùng thành công CPU để tuyên bố model/Windows đã đạt.
 
 ```bash
 .venv/bin/python -m unittest discover -s tests -v
 .venv/bin/python scripts/selftest.py
-# Kiểm thử giao diện, cần Chromium hệ thống:
 .venv/bin/python -m pip install -r requirements-dev.txt
-.venv/bin/python scripts/browser-smoke.py --port 7861
-# Đóng gói nguồn cho Windows:
+.venv/bin/python scripts/browser-smoke.py --port 7864
+.venv/bin/python scripts/reference-browser-smoke.py --port 7864
 .venv/bin/python scripts/package.py
 ```
 
-Test unittest cần FFmpeg/ffprobe hệ thống. Selftest dùng eSpeak và dựng MP4 20s thật; browser smoke thao tác form, phát video, download byte range, hủy và kiểm tra mobile. Test ComfyUI fixture không phải suy luận AI. Trạng thái cụ thể nằm ở [VALIDATION.md](docs/VALIDATION.md).
+Unit/integration test cần FFmpeg/ffprobe hệ thống; browser test cần Chromium. Reference integration dùng output model mô phỏng để kiểm đường đi ảnh, duyệt, thời gian, mux và các chặn lỗi; **không kiểm tra chất lượng AI**. `scripts/selftest.py` kiểm ảnh thật/TTS/FFmpeg CPU. `test-ai-windows.bat` hiện là selftest cũ Wan2.1/SDXL, không chứng nhận luồng tham chiếu hoặc lip-sync. Luồng mới kiểm qua giao diện theo [REFERENCE.md](docs/REFERENCE.md).
 
-[Đánh giá MoneyPrinterTurbo](docs/MoneyPrinterTurbo-review.md) · [Thành phần/giấy phép](docs/THIRD_PARTY.md)
-
-Ứng dụng độc lập, chưa phải fork đầy đủ MoneyPrinterTurbo. Chưa có đăng bài tự động, lấy thông tin sản phẩm tự động, voice cloning, phụ đề từng từ hoặc bảo đảm thu nhập affiliate. Hãy xem lại thông tin, hình ảnh, lời đọc và quyền dùng tư liệu trước khi đăng; thêm nhãn tiếp thị liên kết theo nền tảng.
-
-## Cập nhật sau khi xem video lỗi Wan 2.1
-
-Wan T2V 1.3B hiện sinh từng cảnh độc lập, không có ảnh điều kiện. Có thể đổi người, căn phòng và hình dáng bao bì ngay trong clip hoặc giữa các clip. Không dùng chế độ này như một cam kết giữ đúng người/sản phẩm cho quảng cáo. Chuyển sang chế độ ảnh thật nếu cần giữ hình dạng ngay.
-
-Bản sửa chỉ xử lý lỗi dựng: không lặp lại động tác bằng stream_loop; phụ đề tách thành cue tối đa hai dòng, chữ nhỏ hơn; lưu seed và seed từng cảnh trong JSON để điều tra. Seed chung không khóa danh tính. Muốn sửa tính nhất quán cần pipeline ảnh tham chiếu/image-to-video và kiểm chứng model trên GPU; phần này chưa được triển khai.
+Ứng dụng độc lập, chưa phải fork đầy đủ MoneyPrinterTurbo. [Đánh giá repo](docs/MoneyPrinterTurbo-review.md) · [Báo cáo kiểm thử](docs/VALIDATION.md).

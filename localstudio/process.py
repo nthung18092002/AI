@@ -32,10 +32,10 @@ def check_cancel(cancel):
         raise Cancelled('Đã hủy tác vụ.')
 
 
-def execute(command, cwd=None, cancel=None, timeout=1800):
+def execute(command, cwd=None, cancel=None, timeout=1800, env=None):
     # A file avoids stderr-pipe deadlock while long FFmpeg/model jobs run.
     with tempfile.TemporaryFile() as log:
-        process = subprocess.Popen(command, cwd=cwd, stdout=log, stderr=subprocess.STDOUT)
+        process = subprocess.Popen(command, cwd=cwd, env=env, stdout=log, stderr=subprocess.STDOUT)
         with ACTIVE_LOCK:
             ACTIVE.add(process)
         import time

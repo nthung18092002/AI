@@ -13,12 +13,12 @@ from localstudio.engine import ffmpeg, request_json
 from localstudio.paths import ROOT, COMFY, PIPER_MODEL
 from localstudio.services import start_services, stop_children
 from localstudio.speech import espeak_speech, piper_speech, wave_seconds
-from localstudio.workflows import validate_graph, wan_workflow, sdxl_workflow
+from localstudio.workflows import validate_graph, wan_workflow, sdxl_workflow, reference_frame_workflow, reference_video_workflow
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--profile', choices=['basic', 'images', 'video', 'all'], default='video')
+    parser.add_argument('--profile', choices=['basic', 'images', 'video', 'all', 'reference'], default='reference')
     parser.add_argument('--verify-models', action='store_true')
     args = parser.parse_args()
     checks = []
@@ -72,7 +72,17 @@ def main():
             check('Ollama model', ollama)
             def graph(profile):
                 info = request_json('http://127.0.0.1:8188/object_info', timeout=60)
-                validate_graph(wan_workflow() if profile == 'video' else sdxl_workflow(), info)
+                if profile == 'reference':
+                    from localstudio.comfy_upload import upload_image
+                    from PIL import Image
+                    import io
+                    image = io.BytesIO();Image.new('RGB', (32, 32), 'white').save(image, 'PNG');image.seek(0)
+                    name = upload_image('http://127.0.0.1:8188', image)
+                    info = request_json('http://127.0.0.1:8188/object_info', timeout=60)
+                    validate_graph(reference_frame_workflow(name), info)
+                    validate_graph(reference_video_workflow(name), info)
+                else:
+                    validate_graph(wan_workflow() if profile == 'video' else sdxl_workflow(), info)
                 return 'Node schema và tên model khớp ComfyUI; chưa chạy suy luận.'
             for profile in (['video', 'images'] if args.profile == 'all' else [args.profile]):
                 check('ComfyUI ' + profile, lambda p=profile: graph(p))

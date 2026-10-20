@@ -9,7 +9,7 @@ from localstudio.engine import ROOT, plan, render
 class RenderTests(unittest.TestCase):
     def test_invalid_duration(self):
         with self.assertRaises(ValueError):
-            plan({'product': 'Đèn', 'prompt': 'Bàn học', 'duration': 25})
+            plan({'product': 'Đèn', 'prompt': 'Bàn học', 'duration': 19})
 
     def test_end_to_end(self):
         picture = io.BytesIO()

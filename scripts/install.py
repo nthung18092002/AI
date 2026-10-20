@@ -7,7 +7,7 @@ import subprocess
 import sys
 import venv
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from localstudio.assets import install_comfy_source, install_visuals, install_voice
+from localstudio.assets import install_comfy_source, install_visuals, install_voice, install_reference_models
 from localstudio.paths import ROOT, COMFY
 
 
@@ -18,11 +18,11 @@ def call(args, cwd=None):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--profile', choices=['basic', 'images', 'video', 'all'], default='video')
+    parser.add_argument('--profile', choices=['basic', 'images', 'video', 'all', 'reference'], default='reference')
     parser.add_argument('--skip-voice', action='store_true', help='Keep eSpeak only; no neural voice download.')
     parser.add_argument('--cpu', action='store_true', help='ComfyUI CPU development checks; not suitable for production video generation.')
     args = parser.parse_args()
-    required = 2 if args.profile == 'basic' else 45 if args.profile == 'all' else 35
+    required = 2 if args.profile == 'basic' else 55 if args.profile == 'reference' else 45 if args.profile == 'all' else 35
     if shutil.disk_usage(ROOT).free < required * 1024**3:
         raise RuntimeError(f'Cần tối thiểu {required} GB dung lượng trống để cài profile {args.profile}.')
     if args.profile != 'basic':
@@ -37,7 +37,10 @@ def main():
         call([executable, '-m', 'pip', 'check'])
         if not args.cpu:
             call([executable, '-c', 'import torch; assert torch.cuda.is_available(), "CUDA unavailable: update NVIDIA driver"; x=torch.ones((32,32),device="cuda"); assert (x@x)[0,0].item()==32; print(torch.cuda.get_device_name(), torch.__version__)'])
-        install_visuals(args.profile)
+        if args.profile == 'reference':
+            install_reference_models()
+        else:
+            install_visuals(args.profile)
         ollama = shutil.which('ollama')
         if not ollama and os.name == 'nt':
             candidate = Path(os.environ.get('LOCALAPPDATA', '')) / 'Programs/Ollama/ollama.exe'
@@ -68,7 +71,7 @@ def main():
                 service.wait(timeout=10)
     if not args.skip_voice:
         install_voice()
-    print('Cài đặt hoàn tất. Chạy start-windows.bat. Kiểm tra MODEL_CARD của giọng đọc trước khi dùng thương mại.', flush=True)
+    print('Cài model hình/TTS hoàn tất. Chạy start-windows.bat. Lip-sync cần MuseTalk local cài riêng và kiểm thử; chưa được xác nhận bởi bộ cài này. Xem docs/REFERENCE.md và MODEL_CARD của giọng đọc.', flush=True)
 
 
 if __name__ == '__main__':
