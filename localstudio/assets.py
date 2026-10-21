@@ -26,6 +26,9 @@ COMFY_ZIP_SHA256 = '5a2331bbdeda600efe919e7bba0e74da80e5a44415a6aa0274aef0fd2a01
 VOICE_REPO = 'rhasspy/piper-voices'
 VOICE_FOLDER = 'vi/vi_VN/vais1000/medium/'
 WAN_REPO = 'Comfy-Org/Wan_2.1_ComfyUI_repackaged'
+GGUF_COMMIT = '6ea2651e7df66d7585f6ffee804b20e92fb38b8a'
+GGUF_ZIP_SHA256 = 'aad273a0b774684285b4496f6edff7e2293bd29d71ef89926d6861bfdf4947ac'
+GGUF_SOURCE = COMFY / 'custom_nodes' / 'ComfyUI-GGUF'
 
 
 def digest(path, algorithm='sha256', git_blob=False):
@@ -140,12 +143,12 @@ def install_comfy_source():
             shutil.rmtree(stage)
 
 
-def _extract_source(archive, destination):
+def _extract_source(archive, destination, top=None):
     with zipfile.ZipFile(archive) as source:
-        top = f'ComfyUI-{COMFY_COMMIT}/'
+        top = top or f'ComfyUI-{COMFY_COMMIT}/'
         for entry in source.infolist():
             if not entry.filename.startswith(top):
-                raise ValueError('Archive ComfyUI không đúng cấu trúc.')
+                raise ValueError('Archive nguồn không đúng cấu trúc.')
             relative = Path(entry.filename[len(top):])
             if '..' in relative.parts or relative.is_absolute():
                 raise ValueError('Archive có đường dẫn không hợp lệ.')
@@ -158,14 +161,47 @@ def _extract_source(archive, destination):
                     shutil.copyfileobj(src, dst)
 
 
-def install_reference_models():
-    """Official model paths from ComfyUI's Klein4B edit and Wan2.2 TI2V templates."""
-    from localstudio.workflows import REFERENCE_FILES, WAN_FILES
+def install_gguf_source():
+    """Only the explicitly pinned local model loader is enabled at runtime."""
+    marker = GGUF_SOURCE / '.studio-source'
+    if GGUF_SOURCE.exists():
+        if marker.is_file() and marker.read_text().strip() == GGUF_COMMIT:
+            return
+        raise RuntimeError(f'{GGUF_SOURCE} đã tồn tại và không do bộ cài này quản lý. Không ghi đè custom node cũ.')
+    archive = ROOT / 'work/downloads/comfy-gguf.zip'
+    download_verified('https://codeload.github.com/city96/ComfyUI-GGUF/zip/' + GGUF_COMMIT, archive, GGUF_ZIP_SHA256)
+    GGUF_SOURCE.parent.mkdir(parents=True, exist_ok=True)
+    stage = Path(tempfile.mkdtemp(prefix='gguf-stage-', dir=GGUF_SOURCE.parent))
+    try:
+        _extract_source(archive, stage, f'ComfyUI-GGUF-{GGUF_COMMIT}/')
+        (stage / '.studio-source').write_text(GGUF_COMMIT)
+        stage.rename(GGUF_SOURCE)
+    finally:
+        if stage.exists():
+            shutil.rmtree(stage)
+
+
+def managed_gguf_installed():
+    marker = GGUF_SOURCE / '.studio-source'
+    return marker.is_file() and marker.read_text().strip() == GGUF_COMMIT
+
+
+def install_reference_models(backend='wan22_5b'):
+    """Klein editor plus 5B or community QuantStack Q4 A14B video weights."""
+    from localstudio.workflows import REFERENCE_FILES, WAN_FILES, A14B_FILES, video_backend
+    video_backend({'video_backend': backend})
     hf_files('black-forest-labs/FLUX.2-klein-4b-fp8', [(REFERENCE_FILES['editor'], COMFY / 'models/diffusion_models' / REFERENCE_FILES['editor'])])
     hf_files('Comfy-Org/z_image_turbo', [('split_files/text_encoders/' + REFERENCE_FILES['editor_clip'], COMFY / 'models/text_encoders' / REFERENCE_FILES['editor_clip'])])
     hf_files('Comfy-Org/flux2-dev', [('split_files/vae/' + REFERENCE_FILES['editor_vae'], COMFY / 'models/vae' / REFERENCE_FILES['editor_vae'])])
-    hf_files('Comfy-Org/Wan_2.2_ComfyUI_Repackaged', [
-        ('split_files/diffusion_models/' + REFERENCE_FILES['video'], COMFY / 'models/diffusion_models' / REFERENCE_FILES['video']),
-        ('split_files/vae/' + REFERENCE_FILES['video_vae'], COMFY / 'models/vae' / REFERENCE_FILES['video_vae']),
-    ])
+    if backend == 'wan22_a14b':
+        hf_files('QuantStack/Wan2.2-I2V-A14B-GGUF', [
+            ('HighNoise/' + A14B_FILES['high'], COMFY / 'models/diffusion_models' / A14B_FILES['high']),
+            ('LowNoise/' + A14B_FILES['low'], COMFY / 'models/diffusion_models' / A14B_FILES['low']),
+        ])
+        hf_files(WAN_REPO, [('split_files/vae/' + WAN_FILES['vae'], COMFY / 'models/vae' / WAN_FILES['vae'])])
+    else:
+        hf_files('Comfy-Org/Wan_2.2_ComfyUI_Repackaged', [
+            ('split_files/diffusion_models/' + REFERENCE_FILES['video'], COMFY / 'models/diffusion_models' / REFERENCE_FILES['video']),
+            ('split_files/vae/' + REFERENCE_FILES['video_vae'], COMFY / 'models/vae' / REFERENCE_FILES['video_vae']),
+        ])
     hf_files(WAN_REPO, [('split_files/text_encoders/' + WAN_FILES['clip'], COMFY / 'models/text_encoders' / WAN_FILES['clip'])])

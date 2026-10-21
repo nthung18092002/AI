@@ -11,7 +11,8 @@ from PIL import Image,ImageDraw
 from playwright.sync_api import sync_playwright,expect
 from localstudio.paths import ROOT
 
-parser=argparse.ArgumentParser();parser.add_argument('--port',type=int,default=7864);args=parser.parse_args()
+parser=argparse.ArgumentParser();parser.add_argument('--port',type=int,default=7864)
+parser.add_argument('--backend',choices=['wan22_5b','wan22_a14b'],default='wan22_5b');args=parser.parse_args()
 folder=ROOT/'work/reference-browser';folder.mkdir(parents=True,exist_ok=True)
 photo=folder/'fixture-product.png';image=Image.new('RGB',(121,221),'#fff0bb');ImageDraw.Draw(image).rectangle((5,5,30,210),fill='#ff9966');image.save(photo)
 errors=[]
@@ -24,6 +25,8 @@ with tempfile.TemporaryDirectory() as tmp:
             page.on('pageerror',lambda error:errors.append(str(error)))
             page.goto(f'http://127.0.0.1:{args.port}',wait_until='networkidle')
             page.locator('[name=mode]').select_option('reference')
+            expect(page.locator('#video-model')).to_be_visible()
+            page.locator('[name=video_backend]').select_option(args.backend)
             page.locator('[name=product]').fill('Reference transport test')
             page.locator('[name=prompt]').fill(BRIEF)
             page.locator('summary').filter(has_text='Dùng file âm thanh').click()
@@ -35,6 +38,7 @@ with tempfile.TemporaryDirectory() as tmp:
             page.locator('#submit').click()
             expect(page.locator('.frame-review')).to_have_count(4,timeout=60000)
             expect(page.locator('#reference-state')).to_contain_text('28 giây')
+            expect(page.locator('#reference-state')).to_contain_text('A14B Q4' if args.backend == 'wan22_a14b' else '5B')
             expect(page.locator('#preview-scenes')).to_be_disabled()
             for item in page.locator('.frame-review').all():item.check()
             page.locator('#approve-frames').click()
@@ -59,7 +63,10 @@ with tempfile.TemporaryDirectory() as tmp:
             assert video.evaluate('(v)=>v.videoWidth')==720
             assert len(fixture.graphs)>4
             assert fixture.uploads
+            if args.backend == 'wan22_a14b':
+                assert any(node['class_type']=='UnetLoaderGGUF' for graph in fixture.graphs for node in graph.values())
+                assert not any(node['class_type']=='Wan22ImageToVideoLatent' for graph in fixture.graphs for node in graph.values())
             assert not errors,errors
             browser.close()
     finally:fixture.stop()
-print('PASS reference UI: product upload -> four conditioned frame fixtures -> review -> four I2V clip fixtures -> review -> blocked missing lip-sync -> explicit voiceover choice -> real 28s/720p mux. Neural quality NOT tested.')
+print(f'PASS reference UI ({args.backend}): product upload -> four conditioned frame fixtures -> review -> four I2V clip fixtures -> review -> blocked missing lip-sync -> explicit voiceover choice -> real 28s/720p mux. Neural quality NOT tested.')

@@ -8,6 +8,7 @@ import time
 
 from localstudio.engine import ffmpeg, request_json
 from localstudio.paths import ROOT, COMFY, PIPER_MODEL
+from localstudio.assets import managed_gguf_installed
 
 CHILDREN = []
 LOGS = []
@@ -58,7 +59,10 @@ def start_services():
         try:
             request_json('http://127.0.0.1:8188/system_stats', timeout=2)
         except Exception:
-            spawn([str(python), 'main.py', '--listen', '127.0.0.1', '--port', '8188', '--lowvram', '--reserve-vram', '1', '--disable-all-custom-nodes', '--offline', '--cache-none'], cwd=COMFY, env=environment, name='comfyui')
+            command = [str(python), 'main.py', '--listen', '127.0.0.1', '--port', '8188', '--lowvram', '--reserve-vram', '1', '--disable-all-custom-nodes', '--offline', '--cache-none']
+            if managed_gguf_installed():
+                command += ['--whitelist-custom-nodes', 'ComfyUI-GGUF']
+            spawn(command, cwd=COMFY, env=environment, name='comfyui')
 
 
 def system_status():
@@ -82,9 +86,10 @@ def system_status():
             result[key + '_error'] = str(exc)
     from localstudio.lipsync import status as lipsync_status
     result['lipsync'] = lipsync_status()
+    result['gguf_loader_installed'] = managed_gguf_installed()
     result['installed_assets'] = []
     for folder in ('diffusion_models', 'text_encoders', 'vae', 'checkpoints'):
         path = COMFY / 'models' / folder
         if path.is_dir():
-            result['installed_assets'].extend(p.name for p in path.iterdir() if p.is_file() and p.suffix == '.safetensors')
+            result['installed_assets'].extend(p.name for p in path.iterdir() if p.is_file() and p.suffix in ('.safetensors', '.gguf'))
     return result

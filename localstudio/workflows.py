@@ -1,4 +1,4 @@
-"""Built-in ComfyUI graphs: only core nodes, no cloud/custom-node dependency."""
+"""Local ComfyUI graphs; optional A14B uses the pinned ComfyUI-GGUF loader."""
 import secrets
 
 WAN_FILES = {
@@ -66,6 +66,25 @@ REFERENCE_FILES = {
     'video_vae': 'wan2.2_vae.safetensors',
 }
 
+A14B_FILES = {
+    'high': 'Wan2.2-I2V-A14B-HighNoise-Q4_K_S.gguf',
+    'low': 'Wan2.2-I2V-A14B-LowNoise-Q4_K_S.gguf',
+}
+VIDEO_BACKENDS = ('wan22_5b', 'wan22_a14b')
+
+
+def video_backend(data):
+    # Missing values in old projects retain the model used for their approved clips.
+    value = data.get('video_backend') or 'wan22_5b'
+    if value not in VIDEO_BACKENDS:
+        raise ValueError('Model video không hợp lệ; chọn Wan2.2 5B hoặc A14B GGUF.')
+    return value
+
+
+def video_fps(backend):
+    video_backend({'video_backend': backend})
+    return 16 if backend == 'wan22_a14b' else 24
+
 
 def reference_frame_workflow(product_image, anchor_image=None, seed=0):
     """Image bytes -> VAE -> ReferenceLatent. No overlay or T2V substitute."""
@@ -101,11 +120,14 @@ def reference_frame_workflow(product_image, anchor_image=None, seed=0):
     return graph
 
 
-def reference_video_workflow(start_image, frames=73, quality='balanced', seed=0):
-    """Wan 2.2 TI2V 5B. Uses its dedicated VAE/48-channel reference latent."""
-    width, height, steps = (288, 512, 16) if quality == 'draft' else (576, 1024, 24)
+def reference_video_workflow(start_image, frames=73, quality='balanced', seed=0, backend='wan22_5b'):
+    """Dispatch to the selected I2V model with its compatible VAE/latent."""
+    video_backend({'video_backend': backend})
     if not 5 <= frames <= 121 or frames % 4 != 1:
         raise ValueError('I2V chunk length must be 4n+1, from 5 to 121 frames.')
+    if backend == 'wan22_a14b':
+        return a14b_video_workflow(start_image, frames, quality, seed)
+    width, height, steps = (288, 512, 16) if quality == 'draft' else (576, 1024, 24)
     return {
         '1': {'class_type': 'UNETLoader', 'inputs': {'unet_name': REFERENCE_FILES['video'], 'weight_dtype': 'default'}},
         '2': {'class_type': 'CLIPLoader', 'inputs': {'clip_name': WAN_FILES['clip'], 'type': 'wan', 'device': 'cpu'}},
@@ -118,4 +140,30 @@ def reference_video_workflow(start_image, frames=73, quality='balanced', seed=0)
         '9': {'class_type': 'KSampler', 'inputs': {'model': ['8', 0], 'seed': seed, 'steps': steps, 'cfg': 5.0, 'sampler_name': 'uni_pc', 'scheduler': 'simple', 'positive': ['4', 0], 'negative': ['5', 0], 'latent_image': ['7', 0], 'denoise': 1.0}},
         '10': {'class_type': 'VAEDecodeTiled', 'inputs': {'samples': ['9', 0], 'vae': ['3', 0], 'tile_size': 256, 'overlap': 64, 'temporal_size': 16, 'temporal_overlap': 4}},
         '11': {'class_type': 'SaveWEBM', 'inputs': {'images': ['10', 0], 'filename_prefix': 'LocalStudio/i2v', 'codec': 'vp9', 'fps': 24.0, 'crf': 20.0}},
+    }
+
+
+def a14b_video_workflow(start_image, frames, quality, seed):
+    """Two experts, native 16fps, 16-channel Wan2.1 VAE; no speed LoRA.
+
+    Sampling follows the non-distilled official Wan2.2 A14B I2V template.
+    Q4 reduces weight storage; it does not certify a 12GB peak memory budget.
+    """
+    width, height, steps = (288, 512, 16) if quality == 'draft' else (480, 832, 20)
+    common = {'noise_seed': seed, 'steps': steps, 'cfg': 3.5, 'sampler_name': 'euler', 'scheduler': 'simple', 'positive': ['7', 0], 'negative': ['7', 1]}
+    return {
+        '1': {'class_type': 'UnetLoaderGGUF', 'inputs': {'unet_name': A14B_FILES['high']}},
+        '2': {'class_type': 'CLIPLoader', 'inputs': {'clip_name': WAN_FILES['clip'], 'type': 'wan', 'device': 'cpu'}},
+        '3': {'class_type': 'VAELoader', 'inputs': {'vae_name': WAN_FILES['vae']}},
+        '4': {'class_type': 'CLIPTextEncode', 'inputs': {'text': '{{PROMPT}}', 'clip': ['2', 0]}},
+        '5': {'class_type': 'CLIPTextEncode', 'inputs': {'text': 'blurry, low quality, deformed hands, extra fingers, face morphing, different person, altered packaging, changed logo, warped letters, subtitles, added text, watermark, extra people, abrupt cuts, flicker', 'clip': ['2', 0]}},
+        '6': {'class_type': 'LoadImage', 'inputs': {'image': start_image}},
+        '7': {'class_type': 'WanImageToVideo', 'inputs': {'positive': ['4', 0], 'negative': ['5', 0], 'vae': ['3', 0], 'width': width, 'height': height, 'length': frames, 'batch_size': 1, 'start_image': ['6', 0]}},
+        '8': {'class_type': 'ModelSamplingSD3', 'inputs': {'model': ['1', 0], 'shift': 5.0}},
+        '9': {'class_type': 'KSamplerAdvanced', 'inputs': {**common, 'model': ['8', 0], 'add_noise': 'enable', 'latent_image': ['7', 2], 'start_at_step': 0, 'end_at_step': steps // 2, 'return_with_leftover_noise': 'enable'}},
+        '10': {'class_type': 'VAEDecodeTiled', 'inputs': {'samples': ['14', 0], 'vae': ['3', 0], 'tile_size': 256, 'overlap': 64, 'temporal_size': 16, 'temporal_overlap': 4}},
+        '11': {'class_type': 'SaveWEBM', 'inputs': {'images': ['10', 0], 'filename_prefix': 'LocalStudio/a14b', 'codec': 'vp9', 'fps': 16.0, 'crf': 20.0}},
+        '12': {'class_type': 'UnetLoaderGGUF', 'inputs': {'unet_name': A14B_FILES['low']}},
+        '13': {'class_type': 'ModelSamplingSD3', 'inputs': {'model': ['12', 0], 'shift': 5.0}},
+        '14': {'class_type': 'KSamplerAdvanced', 'inputs': {**common, 'model': ['13', 0], 'add_noise': 'disable', 'latent_image': ['9', 0], 'start_at_step': steps // 2, 'end_at_step': steps, 'return_with_leftover_noise': 'disable'}},
     }

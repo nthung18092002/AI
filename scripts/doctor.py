@@ -18,7 +18,7 @@ from localstudio.workflows import validate_graph, wan_workflow, sdxl_workflow, r
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--profile', choices=['basic', 'images', 'video', 'all', 'reference'], default='reference')
+    parser.add_argument('--profile', choices=['basic', 'images', 'video', 'all', 'reference', 'reference-hq'], default='reference')
     parser.add_argument('--verify-models', action='store_true')
     args = parser.parse_args()
     checks = []
@@ -72,7 +72,7 @@ def main():
             check('Ollama model', ollama)
             def graph(profile):
                 info = request_json('http://127.0.0.1:8188/object_info', timeout=60)
-                if profile == 'reference':
+                if profile in ('reference', 'reference-hq'):
                     from localstudio.comfy_upload import upload_image
                     from PIL import Image
                     import io
@@ -80,7 +80,7 @@ def main():
                     name = upload_image('http://127.0.0.1:8188', image)
                     info = request_json('http://127.0.0.1:8188/object_info', timeout=60)
                     validate_graph(reference_frame_workflow(name), info)
-                    validate_graph(reference_video_workflow(name), info)
+                    validate_graph(reference_video_workflow(name, backend='wan22_a14b' if profile == 'reference-hq' else 'wan22_5b'), info)
                 else:
                     validate_graph(wan_workflow() if profile == 'video' else sdxl_workflow(), info)
                 return 'Node schema và tên model khớp ComfyUI; chưa chạy suy luận.'

@@ -2,13 +2,13 @@ const $ = s => document.querySelector(s);
 const form = $('#form'), button = $('#submit');
 let active = null, polling = false, project = null, sequence = false;
 const hints = {
-  reference: 'Ảnh sản phẩm được đưa vào FLUX.2 Klein 4B để dựng các khung cảnh; sau khi duyệt, khung cảnh đi vào Wan 2.2 TI2V 5B. Không có ảnh đè hoặc fallback T2V. Cần cài profile reference; chưa xác minh VRAM/độ chính xác logo trên RTX 5070.',
+  reference: 'FLUX.2 Klein 4B dựng khung từ ảnh sản phẩm và khung đầu làm tham chiếu người/bối cảnh. I2V dùng model bạn chọn bên dưới. Chưa kiểm chứng chất lượng/VRAM trên RTX 5070 12GB.',
   wan: 'Chế độ cũ Wan 2.1 T2V 1.3B: không nhận ảnh điều kiện, dễ đổi người/bối cảnh/sản phẩm. Không phù hợp cho yêu cầu giữ đúng bao bì.',
   sdxl: 'Chế độ ảnh AI từ text rồi zoom. Ảnh sản phẩm không phải điều kiện của model này; dùng chế độ tham chiếu để đưa ảnh vào model.',
   photos: 'Dựng trực tiếp ảnh thật, không sinh người hoặc động tác bằng AI. Giữ nguyên hình ảnh sản phẩm.',
-  comfy: 'Workflow riêng với node core local. Chưa tự động ánh xạ ảnh vào graph; dùng luồng tham chiếu nếu cần ảnh điều kiện.'
+  comfy: 'Workflow riêng với các node local trong danh sách hỗ trợ. Chưa tự động ánh xạ ảnh vào graph; dùng luồng tham chiếu nếu cần ảnh điều kiện.'
 };
-const safeKeys = ['product','prompt','features','cta','duration','quality','mode','speech','use_ollama','auto_music','burn_subtitles','speech_delivery','ollama_model','comfy_url','voice','seed'];
+const safeKeys = ['product','prompt','features','cta','duration','quality','video_backend','mode','speech','use_ollama','auto_music','burn_subtitles','speech_delivery','ollama_model','comfy_url','voice','seed'];
 function settings() {
   const data = Object.fromEntries(new FormData(form));
   for (const key of ['use_ollama','auto_music','burn_subtitles']) data[key] = form.elements[key].checked;
@@ -19,6 +19,10 @@ function modeHelp() {
   $('#mode-help').textContent = hints[form.elements.mode.value];
   $('#custom').hidden = form.elements.mode.value !== 'comfy';
   $('#images').multiple = !reference;
+  $('#video-model').hidden = !reference;
+  $('#video-model-help').textContent = form.elements.video_backend.value === 'wan22_a14b'
+    ? 'A14B là nhánh model lớn hơn, bản GGUF Q4 giảm bộ nhớ trọng số. Cài setup-windows.bat -Profile reference-hq (ít nhất 70GB trống), đóng/mở lại tool. Chưa benchmark trên 12GB VRAM/32GB RAM; offload có thể rất chậm hoặc thiếu bộ nhớ. Thử clip ngắn trước.'
+    : '5B nhẹ hơn A14B; cài profile reference. I2V vẫn có thể biến dạng hoặc đổi người. Chưa có kết quả benchmark RTX 5070.';
   button.textContent = reference ? '✦ Chuẩn bị khung cảnh tham chiếu' : 'Tạo video theo chế độ đã chọn';
 }
 try {
@@ -58,8 +62,9 @@ async function health() {
   $('#refresh').disabled = true;
   try {
     const state = await api('/api/system'), area = $('#health'); area.replaceChildren();
-    const required = ['flux-2-klein-4b-fp8.safetensors','qwen_3_4b.safetensors','flux2-vae.safetensors','wan2.2_ti2v_5B_fp16.safetensors','wan2.2_vae.safetensors','umt5_xxl_fp8_e4m3fn_scaled.safetensors'];
-    const checks = [['FFmpeg',state.ffmpeg],['Ollama',state.ollama && state.ollama_models?.length],['ComfyUI',state.comfy],['Model tham chiếu',required.every(name=>state.installed_assets?.includes(name))],['Piper',state.piper],['eSpeak',state.espeak],['MuseTalk cấu hình',state.lipsync?.configured]];
+    const required = ['flux-2-klein-4b-fp8.safetensors','qwen_3_4b.safetensors','flux2-vae.safetensors','umt5_xxl_fp8_e4m3fn_scaled.safetensors'];
+    const installed = names => names.every(name=>state.installed_assets?.includes(name));
+    const checks = [['FFmpeg',state.ffmpeg],['Ollama',state.ollama && state.ollama_models?.length],['ComfyUI',state.comfy],['Ảnh tham chiếu',installed(required)],['Wan 5B',installed(['wan2.2_ti2v_5B_fp16.safetensors','wan2.2_vae.safetensors'])],['Wan A14B Q4',state.gguf_loader_installed && installed(['Wan2.2-I2V-A14B-HighNoise-Q4_K_S.gguf','Wan2.2-I2V-A14B-LowNoise-Q4_K_S.gguf','wan_2.1_vae.safetensors'])],['Piper',state.piper],['eSpeak',state.espeak],['MuseTalk cấu hình',state.lipsync?.configured]];
     for (const [label, okay] of checks) { const chip = text('span',(okay?'● ':'○ ')+label); chip.className='chip '+(okay?'ok':'warn'); area.append(chip); }
     $('#system-detail').textContent = JSON.stringify(state,null,2);
   } catch(error) { $('#health').textContent = error.message; }
@@ -95,7 +100,7 @@ function projectControls() {
 }
 function showProject(data) {
   project=data; $('#reference-review').hidden=false;
-  $('#reference-state').textContent=`${data.plan.duration} giây · ${data.state}`;
+  $('#reference-state').textContent=`${data.plan.duration} giây · ${data.video_backend === 'wan22_a14b' ? 'A14B Q4' : '5B'} · ${data.state}`;
   $('#reference-warnings').textContent=data.warnings.join('\n');
   $('#project-delivery').value=data.speech_delivery || 'as_requested';
   const frames=$('#reference-frames'); frames.replaceChildren();

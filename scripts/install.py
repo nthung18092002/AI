@@ -7,7 +7,7 @@ import subprocess
 import sys
 import venv
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from localstudio.assets import install_comfy_source, install_visuals, install_voice, install_reference_models
+from localstudio.assets import install_comfy_source, install_visuals, install_voice, install_reference_models, install_gguf_source, GGUF_SOURCE
 from localstudio.paths import ROOT, COMFY
 
 
@@ -18,11 +18,11 @@ def call(args, cwd=None):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--profile', choices=['basic', 'images', 'video', 'all', 'reference'], default='reference')
+    parser.add_argument('--profile', choices=['basic', 'images', 'video', 'all', 'reference', 'reference-hq'], default='reference')
     parser.add_argument('--skip-voice', action='store_true', help='Keep eSpeak only; no neural voice download.')
     parser.add_argument('--cpu', action='store_true', help='ComfyUI CPU development checks; not suitable for production video generation.')
     args = parser.parse_args()
-    required = 2 if args.profile == 'basic' else 55 if args.profile == 'reference' else 45 if args.profile == 'all' else 35
+    required = 2 if args.profile == 'basic' else 70 if args.profile == 'reference-hq' else 55 if args.profile == 'reference' else 45 if args.profile == 'all' else 35
     if shutil.disk_usage(ROOT).free < required * 1024**3:
         raise RuntimeError(f'Cần tối thiểu {required} GB dung lượng trống để cài profile {args.profile}.')
     if args.profile != 'basic':
@@ -34,11 +34,14 @@ def main():
         call([executable, '-m', 'pip', 'install', 'torch==2.10.0', 'torchvision==0.25.0', '--index-url', index])
         constraints = ROOT / 'scripts' / 'comfy-constraints.txt'
         call([executable, '-m', 'pip', 'install', '-r', COMFY / 'requirements.txt', '-c', constraints])
+        if args.profile == 'reference-hq':
+            install_gguf_source()
+            call([executable, '-m', 'pip', 'install', 'gguf==0.19.0', '-r', GGUF_SOURCE / 'requirements.txt', '-c', constraints])
         call([executable, '-m', 'pip', 'check'])
         if not args.cpu:
             call([executable, '-c', 'import torch; assert torch.cuda.is_available(), "CUDA unavailable: update NVIDIA driver"; x=torch.ones((32,32),device="cuda"); assert (x@x)[0,0].item()==32; print(torch.cuda.get_device_name(), torch.__version__)'])
-        if args.profile == 'reference':
-            install_reference_models()
+        if args.profile in ('reference', 'reference-hq'):
+            install_reference_models('wan22_a14b' if args.profile == 'reference-hq' else 'wan22_5b')
         else:
             install_visuals(args.profile)
         ollama = shutil.which('ollama')

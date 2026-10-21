@@ -16,7 +16,7 @@ from PIL import Image, ImageDraw
 from localstudio import projects, lipsync
 from localstudio.brief import explicit_plan
 from localstudio.engine import ffmpeg, plan, render, run
-from localstudio.workflows import reference_frame_workflow, reference_video_workflow
+from localstudio.workflows import reference_frame_workflow, reference_video_workflow, video_backend, A14B_FILES
 
 BRIEF = '''Tạo video gia đình 25–30 giây. Căn bếp Việt Nam, ánh sáng ban ngày.
 – 0–5 giây: Người phụ nữ cầm sản phẩm. Cô nói: “Giữ nguyên câu mở đầu.”
@@ -54,17 +54,18 @@ class FixtureComfy:
                     product_node = graph['6']['inputs']['image']
                     fixture.outputs[name] = fixture.uploads[product_node]
                 else:
-                    frames = next(node['inputs']['length'] for node in graph.values() if node['class_type'] == 'Wan22ImageToVideoLatent')
-                    path = fixture.folder / f'video-{frames}.webm'
+                    frames = next(node['inputs']['length'] for node in graph.values() if node['class_type'] in ('Wan22ImageToVideoLatent', 'WanImageToVideo'))
+                    fps = next(node['inputs']['fps'] for node in graph.values() if node['class_type'] == 'SaveWEBM')
+                    path = fixture.folder / f'video-{frames}-{fps}.webm'
                     if not path.is_file():
-                        subprocess.run([ffmpeg(),'-v','error','-y','-f','lavfi','-i','testsrc2=size=180x320:rate=24','-frames:v',str(frames),'-c:v','libvpx-vp9',str(path)],check=True)
+                        subprocess.run([ffmpeg(),'-v','error','-y','-f','lavfi','-i',f'testsrc2=size=180x320:rate={fps}','-frames:v',str(frames),'-c:v','libvpx-vp9',str(path)],check=True)
                     name = prompt_id+'.webm';fixture.outputs[name]=path.read_bytes()
                 fixture.outputs[prompt_id] = name
                 return self.json({'prompt_id':prompt_id})
             def do_GET(self):
                 if self.path == '/object_info':
                     info={}
-                    for graph in (reference_frame_workflow('x.png','y.png'),reference_video_workflow('x.png')):
+                    for graph in (reference_frame_workflow('x.png','y.png'),reference_video_workflow('x.png'),reference_video_workflow('x.png', backend='wan22_a14b')):
                         for node in graph.values():
                             specs={key:['TEST_TYPE'] for key in node['inputs']}
                             info[node['class_type']]={'input':{'required':specs}}
@@ -86,6 +87,49 @@ class FixtureComfy:
 
 
 class ReferenceTests(unittest.TestCase):
+    def test_a14b_uses_two_experts_and_compatible_reference_latent(self):
+        graph = reference_video_workflow('approved-frame.png', 49, backend='wan22_a14b', seed=42)
+        self.assertEqual(graph['1']['inputs']['unet_name'], A14B_FILES['high'])
+        self.assertEqual(graph['12']['inputs']['unet_name'], A14B_FILES['low'])
+        self.assertEqual(graph['3']['inputs']['vae_name'], 'wan_2.1_vae.safetensors')
+        self.assertEqual(graph['7']['class_type'], 'WanImageToVideo')
+        self.assertEqual(graph['7']['inputs']['start_image'], ['6', 0])
+        self.assertEqual(graph['9']['inputs']['latent_image'], ['7', 2])
+        self.assertEqual(graph['14']['inputs']['latent_image'], ['9', 0])
+        self.assertEqual(graph['14']['inputs']['positive'], ['7', 0])
+        self.assertEqual(graph['14']['inputs']['add_noise'], 'disable')
+        self.assertEqual(graph['9']['inputs']['end_at_step'], graph['14']['inputs']['start_at_step'])
+        self.assertEqual(graph['9']['inputs']['noise_seed'], graph['14']['inputs']['noise_seed'])
+        self.assertEqual(graph['11']['inputs']['fps'], 16)
+        self.assertNotIn('Wan22ImageToVideoLatent', [node['class_type'] for node in graph.values()])
+        self.assertEqual(video_backend({}), 'wan22_5b')
+        with self.assertRaises(ValueError):
+            reference_video_workflow('x.png', backend='unknown')
+
+    def test_a14b_16fps_preview_and_continuation_keep_24fps_output_duration(self):
+        # No AI weights: verifies the second model's real HTTP/media/time path.
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            fixture = FixtureComfy(tmp).start()
+            try:
+                Image.new('RGB', (120, 220), 'yellow').save(folder / 'frame-0.png')
+                manifest = {'seed': 42, 'data': {'video_backend': 'wan22_a14b', 'quality': 'balanced', 'comfy_url': fixture.url}, 'plan': {'timeline': [{'action': 'Slowly hold a product.'}]}}
+                clip = projects.generate_scene(folder, manifest, 0, 72, lambda _: None, None)
+                projects.require_frame_count(clip, 72)
+                import shutil
+                shutil.copy2(clip, folder / 'preview-0.mp4')
+                manifest['preview_frames'] = {'0': 72}
+                result = projects.generate_scene(folder, manifest, 0, 123, lambda _: None, None, reuse_preview=True)
+                projects.require_frame_count(result, 123)
+                duration = float(subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', str(result)], capture_output=True, text=True, check=True).stdout)
+                self.assertAlmostEqual(duration, 123 / 24, delta=.05)
+                self.assertEqual(len(fixture.graphs), 2)
+                self.assertTrue(all(g['7']['class_type'] == 'WanImageToVideo' for g in fixture.graphs))
+                self.assertEqual([g['7']['inputs']['length'] for g in fixture.graphs], [49, 37])
+                self.assertEqual([x['source_frames'] for x in manifest['chunks']], [48, 34])
+            finally:
+                fixture.stop()
+
     def test_exact_dialogue_timeline_and_no_text_are_preserved_without_llm(self):
         with patch('localstudio.engine.request_json') as network:
             result=plan({'prompt':BRIEF,'duration':30,'use_ollama':True})

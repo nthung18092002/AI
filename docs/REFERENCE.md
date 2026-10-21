@@ -4,6 +4,8 @@ Bản này sửa việc ảnh sản phẩm bị chèn như một miếng dán. �
 
 Đây là thay đổi kiến trúc. **Chưa có kết quả sinh model thật được kiểm chứng trên RTX 5070 12GB.** Kiểm thử đường đi ảnh và schema không chứng minh ảnh đẹp, giữ logo hoặc tay đúng giải phẫu. I2V vẫn có thể làm méo chữ/bao bì và đổi mặt. Một ảnh mặt trước cũng không cung cấp hình học miệng gói, mặt bên hoặc cách rút giấy. Không hứa giữ tuyệt đối sản phẩm chỉ nhờ seed hoặc negative prompt.
 
+Có thêm lựa chọn **Wan 2.2 I2V A14B GGUF Q4** để thử chất lượng cao hơn: cài profile `reference-hq`, chọn model trong giao diện trước khi tạo dự án mới. Model này dùng **WanImageToVideo/Wan2.1 VAE**, khác graph/VAE 5B bên dưới. Xem [model, cách cập nhật và giới hạn bộ nhớ](MODELS.md). Các dự án cũ không bị tự đổi model.
+
 ## Cập nhật từ bản cũ
 
 1. Đóng ứng dụng và các dịch vụ của nó. Sao lưu code nếu bạn tự sửa.

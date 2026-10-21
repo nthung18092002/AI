@@ -15,7 +15,7 @@ from localstudio.engine import ffmpeg, atempo, caption_cues, plan, request_json,
 from localstudio.paths import ROOT, PIPER_MODEL
 from localstudio.process import check_cancel
 from localstudio.speech import ambient_music, espeak_speech, piper_speech, wave_seconds
-from localstudio.workflows import reference_frame_workflow, reference_video_workflow, validate_graph
+from localstudio.workflows import reference_frame_workflow, reference_video_workflow, validate_graph, video_backend, video_fps
 from localstudio import lipsync
 
 PROJECTS = ROOT / 'work/projects'
@@ -56,7 +56,7 @@ def media(project_id, filename):
 
 def describe(project_id):
     folder, manifest = read(project_id)
-    return {'kind': 'reference', 'project_id': project_id, 'state': manifest['state'], 'frames_approved': manifest.get('approved_hashes') == [sha(folder / f'frame-{i}.png') for i in range(len(manifest['plan']['timeline']))], 'speech_delivery': manifest['data'].get('speech_delivery', 'as_requested'), 'plan': manifest['plan'], 'warnings': manifest['warnings'], 'frames': [{'index': i, 'sha256': sha(folder / f'frame-{i}.png'), 'image': media(project_id, f'frame-{i}.png'), 'voice': media(project_id, f'voice-{i}.wav') if (folder / f'voice-{i}.wav').is_file() else None, 'dialogue': scene['dialogue'], 'start': scene['start'], 'end': scene['end']} for i, scene in enumerate(manifest['plan']['timeline'])], 'previews': [{'index': i, 'video': media(project_id, f'preview-{i}.mp4'), 'sha256': sha(folder / f'preview-{i}.mp4'), 'approved': manifest.get('motion_hashes', {}).get(str(i)) == sha(folder / f'preview-{i}.mp4')} for i in range(len(manifest['plan']['timeline'])) if (folder / f'preview-{i}.mp4').is_file()], 'lipsync': lipsync.status()}
+    return {'kind': 'reference', 'project_id': project_id, 'video_backend': video_backend(manifest['data']), 'state': manifest['state'], 'frames_approved': manifest.get('approved_hashes') == [sha(folder / f'frame-{i}.png') for i in range(len(manifest['plan']['timeline']))], 'speech_delivery': manifest['data'].get('speech_delivery', 'as_requested'), 'plan': manifest['plan'], 'warnings': manifest['warnings'], 'frames': [{'index': i, 'sha256': sha(folder / f'frame-{i}.png'), 'image': media(project_id, f'frame-{i}.png'), 'voice': media(project_id, f'voice-{i}.wav') if (folder / f'voice-{i}.wav').is_file() else None, 'dialogue': scene['dialogue'], 'start': scene['start'], 'end': scene['end']} for i, scene in enumerate(manifest['plan']['timeline'])], 'previews': [{'index': i, 'video': media(project_id, f'preview-{i}.mp4'), 'sha256': sha(folder / f'preview-{i}.mp4'), 'approved': manifest.get('motion_hashes', {}).get(str(i)) == sha(folder / f'preview-{i}.mp4')} for i in range(len(manifest['plan']['timeline'])) if (folder / f'preview-{i}.mp4').is_file()], 'lipsync': lipsync.status()}
 
 
 def frame_prompt(scene, context, has_anchor):
@@ -81,6 +81,8 @@ def context_from_prompt(prompt):
 def prepare(data, uploads, progress, cancel=None):
     if len(uploads.get('images', [])) != 1:
         raise ValueError('Cần ảnh sản phẩm thật để tạo khung tham chiếu. Không thay bằng text-to-video.')
+    backend = video_backend(data)
+    data = {**data, 'video_backend': backend}
     storyboard = plan({**data, 'mode': 'reference'})
     if not storyboard.get('timeline'):
         step = storyboard['duration'] / len(storyboard['lines'])
@@ -104,6 +106,8 @@ def prepare(data, uploads, progress, cancel=None):
         ImageOps.exif_transpose(image).convert('RGB').save(product)
     seed = int(data['seed']) if data.get('seed') not in (None, '') else secrets.randbelow(2**53)
     manifest = {'id': project_id, 'state': 'preparing', 'data': {k: v for k, v in data.items() if k not in ('images', 'narration', 'music')}, 'plan': storyboard, 'seed': seed, 'warnings': ['Ảnh có điều kiện giảm drift nhưng không bảo đảm nguyên vẹn mọi logo, chữ hoặc bàn tay. Cần kiểm tra khung và clip thử.', 'Chưa kiểm chứng suy luận/VRAM trên RTX 5070 12GB trong môi trường cloud này.'], 'approved_hashes': None, 'motion_hashes': {}, 'conditioning': []}
+    if backend == 'wan22_a14b':
+        manifest['warnings'].append('Wan2.2 A14B Q4: hai expert khoảng 17.5GB trọng số, chưa tính text encoder và bộ nhớ chạy. RAM 32GB có thể thiếu; offload sẽ chậm. Chưa đo chất lượng/VRAM trên máy bạn.')
     if storyboard.get('requires_lipsync') and not lipsync.status()['configured']:
         manifest['warnings'].append('Yêu cầu khớp môi đang giữ nguyên. Thiếu MuseTalk local sẽ chặn dựng toàn bộ, không xuất voiceover thay thế.')
     save(folder, manifest)
@@ -140,7 +144,7 @@ def prepare(data, uploads, progress, cancel=None):
     info = request_json(base + '/object_info', timeout=60)
     # Check BOTH the editor and video model before expensive synthesis.
     validate_graph(reference_frame_workflow(product_name), info)
-    validate_graph(reference_video_workflow(product_name), info)
+    validate_graph(reference_video_workflow(product_name, backend=backend), info)
     anchor_name = None
     context = str(data.get('reference_context') or context_from_prompt(data['prompt']))
     for i, scene in enumerate(storyboard['timeline']):
@@ -198,6 +202,8 @@ def generate_scene(folder, manifest, index, target_frames, progress, cancel, reu
     scene = manifest['plan']['timeline'][index]
     base = str(manifest['data'].get('comfy_url') or 'http://127.0.0.1:8188').rstrip('/')
     quality = manifest['data'].get('quality') or 'balanced'
+    backend = video_backend(manifest['data'])
+    source_fps = video_fps(backend)
     seed = (manifest['seed'] + index) % 2**53
     reference = folder / f'frame-{index}.png'
     clips = []
@@ -215,9 +221,10 @@ def generate_scene(folder, manifest, index, target_frames, progress, cancel, reu
         source_sha = sha(reference)
         name = upload_image(base, reference)
         # Include a boundary frame so the next chunk can omit the repeated first frame.
-        needed = count + (1 if j or prior else 0)
+        source_count = math.ceil(count * source_fps / 24)
+        needed = source_count + (1 if j or prior else 0)
         length = 4 * math.ceil((needed - 1) / 4) + 1
-        graph = reference_video_workflow(name, max(5, length), quality, (seed + j) % 2**53)
+        graph = reference_video_workflow(name, max(5, length), quality, (seed + j) % 2**53, backend=backend)
         motion = 'Continue the same person, same face, clothing, physical product and kitchen as the starting image. Stable camera, slow restrained natural motion, no new people or text. Do not redesign the package or its printed artwork. Action in this shot: ' + scene['action']
         asset = comfy_generate(graph, motion, base, folder, 1000 + index * 100 + j, cancel)
         if asset.suffix.lower() not in ('.webm', '.mp4'):
@@ -225,13 +232,13 @@ def generate_scene(folder, manifest, index, target_frames, progress, cancel, reu
         clip = folder / f'chunk-{index}-{j}.mp4'
         start = 1 if j or prior else 0
         # No overlay, loop, tpad or length stretching in this reference path.
-        vf = f'trim=start_frame={start}:end_frame={start+count},setpts=PTS-STARTPTS,scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,setsar=1,fps=24'
+        vf = f'trim=start_frame={start}:end_frame={start+source_count},setpts=PTS-STARTPTS,scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,setsar=1,fps=24'
         run(['-i', str(asset), '-vf', vf, '-frames:v', str(count), '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '19', '-pix_fmt', 'yuv420p', str(clip)], cancel)
         require_frame_count(clip, count)
         clips.append(clip)
         reference = folder / f'continuation-{index}-{j}.png'
         run(['-sseof', '-1', '-i', str(clip), '-vf', 'reverse', '-frames:v', '1', str(reference)], cancel)
-        manifest.setdefault('chunks', []).append({'phase': 'continuation' if reuse_preview else 'preview', 'scene': index, 'chunk': j, 'source_frame_sha256': source_sha, 'seed': (seed + j) % 2**53, 'frames': count})
+        manifest.setdefault('chunks', []).append({'phase': 'continuation' if reuse_preview else 'preview', 'scene': index, 'chunk': j, 'source_frame_sha256': source_sha, 'seed': (seed + j) % 2**53, 'frames': count, 'video_backend': backend, 'source_fps': source_fps, 'source_frames': source_count})
         save(folder, manifest)
     listing = folder / f'chunks-{index}.txt'
     listing.write_text('\n'.join(f"file '{p.name}'" for p in clips))

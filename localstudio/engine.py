@@ -136,7 +136,7 @@ def comfy_generate(workflow, prompt, base, folder, scene, cancel=None):
     if not replaced or not isinstance(graph, dict) or not all(isinstance(n, dict) and 'class_type' in n for n in graph.values()):
         raise ValueError('Workflow cần định dạng API ComfyUI và có {{PROMPT}} trong prompt.')
     allowed = {node['class_type'] for graph in (wan_workflow(), sdxl_workflow()) for node in graph.values()}
-    for ref_graph in (reference_frame_workflow('placeholder.png'), reference_video_workflow('placeholder.png')):
+    for ref_graph in (reference_frame_workflow('placeholder.png'), reference_video_workflow('placeholder.png'), reference_video_workflow('placeholder.png', backend='wan22_a14b')):
         allowed.update(node['class_type'] for node in ref_graph.values())
     allowed.update({'LoadImage', 'VAEEncode', 'VAEDecode', 'ImageScale', 'ImageScaleBy', 'WanImageToVideo', 'CLIPVisionLoader', 'CLIPVisionEncode', 'EmptyImage'})
     unsupported = sorted({node['class_type'] for node in graph.values()} - allowed)

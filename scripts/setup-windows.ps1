@@ -1,4 +1,4 @@
-param([ValidateSet('basic','images','video','all','reference')][string]$Profile = 'reference')
+param([ValidateSet('basic','images','video','all','reference','reference-hq')][string]$Profile = 'reference')
 $ErrorActionPreference = 'Stop'
 Set-Location (Split-Path $PSScriptRoot -Parent)
 function Check-Exit([string]$Step) {

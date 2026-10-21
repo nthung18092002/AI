@@ -14,13 +14,15 @@ Bản cũ đã sinh từng cảnh bằng Wan 2.1 T2V và chèn ảnh sản phẩ
 
 Profile reference cài ComfyUI, PyTorch CUDA 12.8, FLUX.2 Klein 4B fp8, text encoder Qwen3 4B, FLUX2 VAE, Wan 2.2 TI2V 5B, Wan2.2 VAE, UMT5 và Piper. Dùng model nhỏ hơn không có nghĩa chắc chắn vừa 12GB VRAM. Bộ cài có phép tính tensor GPU để kiểm tra CUDA, nhưng chưa benchmark các model này trên máy mục tiêu.
 
+**Thử model mạnh hơn:** chạy `setup-windows.bat -Profile reference-hq` (ít nhất 70GB trống), mở lại tool rồi chọn **Wan 2.2 I2V A14B · GGUF Q4** trong mục model chuyển động. Đây là lựa chọn thêm; model dự án cũ được giữ nguyên. Hai expert Q4 tổng khoảng 17.5GB trọng số, cần offload; chưa đo khả năng chạy/chất lượng trên 12GB VRAM/32GB RAM. [Cách chọn, nguồn model và giới hạn](docs/MODELS.md).
+
 **Lip-sync là phần cài riêng, chưa có bộ cài Windows/RTX 5070 được kiểm chứng.** Adapter MuseTalk local có sẵn; thiếu module/model sẽ chặn yêu cầu khớp môi. Không coi giọng đọc ghép vào video là lip-sync. [Cấu hình/giới hạn MuseTalk](docs/REFERENCE.md).
 
 ## Hành vi đã sửa
 
 - Ảnh được upload thật vào ComfyUI, đi qua VAE/reference conditioning; không chỉ nối tên file vào prompt.
 - Khung đầu làm tham chiếu thêm cho nhân vật/bối cảnh ở các khung sau.
-- Khung đã duyệt đi vào graph **Wan22ImageToVideoLatent**, dùng đúng Wan2.2 VAE; không thay bằng T2V hoặc ảnh tĩnh.
+- Khung đã duyệt đi vào graph I2V đúng model: 5B dùng **Wan22ImageToVideoLatent/Wan2.2 VAE**, A14B dùng **WanImageToVideo/Wan2.1 VAE** và hai expert; không thay bằng T2V hoặc ảnh tĩnh.
 - Timeline/lời thoại đặt trong prompt được giữ nguyên. Các mốc 0–5, 5–13, 13–20, 20–28 được dựng thành 28 giây.
 - “Không tự thêm chữ” tắt phụ đề đóng vào hình; không ép toàn bộ lời thoại lên màn hình.
 - Mỗi cảnh có clip thử tối đa 3s để duyệt. Clip đã duyệt được dùng lại khi dựng dài; các đoạn sau tiếp tục bằng khung cuối.
@@ -33,7 +35,7 @@ Profile reference cài ComfyUI, PyTorch CUDA 12.8, FLUX.2 Klein 4B fp8, text enc
 
 | Chế độ | Hành vi |
 |---|---|
-| Tham chiếu (mới) | FLUX.2 Klein dựng khung từ ảnh thật + Wan2.2 I2V; cần profile reference |
+| Tham chiếu (mới) | FLUX.2 Klein dựng khung từ ảnh thật + Wan2.2 I2V 5B hoặc A14B GGUF; profile reference hoặc reference-hq |
 | Ảnh thật | Zoom ảnh sản phẩm, không tạo người/động tác bằng AI; chạy CPU |
 | SDXL (cũ) | Sinh ảnh bằng text, không nhận ảnh sản phẩm làm điều kiện |
 | Wan2.1 T2V (cũ) | Thử nghiệm không ảnh điều kiện, dễ drift; không dùng như cam kết giữ đúng sản phẩm |
@@ -45,15 +47,15 @@ Profile reference cài ComfyUI, PyTorch CUDA 12.8, FLUX.2 Klein 4B fp8, text enc
 
 Piper neural, eSpeak NG offline (giọng máy), Windows System.Speech nếu có voice tương thích, hoặc file WAV/MP3 tự tải lên. Cần nghe thử voice; chưa xác nhận Piper hiện tại đáp ứng giọng nữ tự nhiên. Nhạc ambient tạo bằng thuật toán local, không phải model AI sinh nhạc; file nhạc tải lên ưu tiên nếu bạn chọn.
 
-Đầu ra MP4 H.264/AAC 720×1280, 24fps, SRT và JSON. I2V bản nháp 288×512, bản cân bằng 576×1024 rồi upscale; không phải model sinh 720p gốc. Video dài được sinh theo các đoạn ngắn, có thể tích lũy drift. Xem toàn bộ video trước khi dùng.
+Đầu ra MP4 H.264/AAC 720×1280, 24fps, SRT và JSON. I2V bản nháp 288×512; cân bằng 5B sinh 576×1024, A14B sinh 480×832 rồi upscale; không phải model sinh 720p gốc. A14B gốc 16fps được chuyển sang 24fps, không phải sinh thêm chuyển động bằng AI. Video dài được sinh theo các đoạn ngắn, có thể tích lũy drift. Xem toàn bộ video trước khi dùng.
 
 File: `outputs/`; dự án tham chiếu: `work/projects/`; lịch sử: `work/jobs.json`; log: `work/logs/`; model: `models/` và `runtime/ComfyUI/models/`. Dừng ứng dụng trước khi dọn dữ liệu. Chỉ chạy một instance ứng dụng dùng chung thư mục. Các dịch vụ do ứng dụng khởi động sẽ dừng khi đóng; dịch vụ chạy sẵn không bị tắt.
 
 ## Local và bảo vệ dữ liệu
 
-Giao diện bind 127.0.0.1, kiểm tra Host/Origin, không mở CORS. Adapter AI chặn URL ngoài loopback, bỏ proxy và chặn redirect ra ngoài. Ollama `/api/show` được kiểm tra để từ chối model remote/cloud. Graph chỉ dùng danh sách node core xử lý local. ComfyUI do ứng dụng quản lý bật offline, tắt custom nodes và cache-none; ONNX telemetry bị tắt trước khi nạp Piper. Đây không phải firewall cho mọi phần mềm trên PC; tự cấu hình server ngoài do bạn chạy.
+Giao diện bind 127.0.0.1, kiểm tra Host/Origin, không mở CORS. Adapter AI chặn URL ngoài loopback, bỏ proxy và chặn redirect ra ngoài. Ollama `/api/show` được kiểm tra để từ chối model remote/cloud. Graph dùng danh sách node xử lý local đã chọn. ComfyUI do ứng dụng quản lý bật offline, cache-none và tắt custom nodes, ngoại trừ ComfyUI-GGUF ghim phiên bản khi được cài bằng profile reference-hq; ONNX telemetry bị tắt trước khi nạp Piper. Đây không phải firewall cho mọi phần mềm trên PC; tự cấu hình server ngoài do bạn chạy.
 
-Trọng số tải từ nguồn chính thức qua HTTPS, kiểm SHA256 LFS/Git blob theo revision bất biến. Archive ComfyUI được ghim commit và SHA256. Thông tin tải lưu tại `models/download-records.json`. Không cần secret hoặc API key cho suy luận. License code không thay thế license model/voice/nhạc: xem [thành phần bên ngoài](docs/THIRD_PARTY.md).
+Trọng số tải từ nhà phát hành/model repack nêu rõ trong tài liệu qua HTTPS, kiểm SHA256 LFS/Git blob theo revision bất biến. GGUF A14B là bản lượng tử hóa cộng đồng QuantStack. Archive ComfyUI và ComfyUI-GGUF được ghim commit/SHA256. Thông tin tải lưu tại `models/download-records.json`. Không cần secret hoặc API key cho suy luận. License code không thay thế license model/voice/nhạc: xem [thành phần bên ngoài](docs/THIRD_PARTY.md).
 
 ## Phát triển / kiểm thử
 
